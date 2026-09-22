@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>VoiceScribe AI Meet Capture</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header>
+        <div class="eyebrow"><span class="cross">+</span> VOICESCRIBE AI</div>
+        <h1>Record Google Meet</h1>
+        <p>Capture this Meet tab and draft structured clinical notes in real time.</p>
+        <div class="conn-bar">
+          <span>VoiceScribe App:</span>
+          <span id="appBaseDisplay" class="conn-url">http://127.0.0.1:5173</span>
+          <button type="button" class="link-button" id="settingsButton">Change</button>
+        </div>
+      </header>
+
+      <section class="notice" aria-label="Clinical safety notice">
+        VoiceScribe AI documents what was said in the consultation. Human doctor review is required before signing.
+      </section>
+
+      <section class="card" id="setupCard">
+        <div class="card-title"><span>CONSULTATION SETUP</span></div>
+        <label>Consultation Title<input id="sessionName" value="Telehealth Consultation" /></label>
+        <label>Patient ID<input id="patientId" value="PT-GMEET-01" /></label>
+        <label>Encounter Type
+          <select id="encounterType">
+            <option value="OUTPATIENT" selected>Outpatient Visit / Clinic</option>
+            <option value="OSCE">Clinical Examination / OSCE</option>
+            <option value="WARD_ROUND">Inpatient / Ward Round</option>
+            <option value="EMERGENCY">Emergency / Urgent Care</option>
+            <option value="TEACHING">Academic / Case Review</option>
+            <option value="OTHER">General Consultation</option>
+          </select>
+        </label>
+        <label>Attending Clinician<input id="doctorName" placeholder="Dr. A. Rao" /></label>
+        <label>Clinical Notes / Context<input id="scenario" value="Remote doctor–patient encounter captured from Google Meet" /></label>
+        <button class="primary" id="createButton">Start Consultation</button>
+      </section>
+
+      <section class="card hidden" id="captureCard">
+        <div class="card-title"><span>LIVE ENCOUNTER</span><span id="sessionReference" class="reference"></span></div>
+        <p id="sessionDisplay" class="session-display"></p>
+        <div class="status"><span id="statusDot" class="dot"></span><span id="statusText">Ready to capture this tab</span></div>
+
+        <div class="caption-status" id="captionStatus">
+          <span id="captionDot" class="dot"></span>
+          <span id="captionText">Meet Captions: enable CC in Meet for auto-speaker tagging</span>
+        </div>
+        <div class="meter-row"><span>Audio level</span><div class="meter"><i id="levelBar"></i></div></div>
+        <div class="duration" id="duration">00:00</div>
+        
+        <button class="record" id="recordButton">Start Recording Meet</button>
+        <button class="stop-btn hidden" id="stopButton">⏹ Stop & Transcribe Note</button>
+        <button class="secondary hidden" id="discardButton">Discard Recording</button>
+        <button class="secondary hidden" id="reviewButton">Open Review & Sign Note</button>
+        <p class="hint">Keep this panel open while recording. When the encounter ends, click Stop & Transcribe Note.</p>
+      </section>
+
+      <p class="error hidden" id="errorMessage" role="alert"></p>
+    </main>
+    <script type="module" src="sidepanel.js"></script>
+  </body>
+</html>

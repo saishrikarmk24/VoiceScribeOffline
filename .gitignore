@@ -1,0 +1,42 @@
+# --- secrets -----------------------------------------------------------------
+.env
+.env.local
+*.pem
+
+# --- python ------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# --- databases / runtime artefacts -------------------------------------------
+*.db
+*.db-wal
+*.db-shm
+*.sqlite3
+backend/storage/
+backend/tests/medscribe_test.db*
+
+# --- node / frontend ---------------------------------------------------------
+node_modules/
+frontend/dist/
+frontend/.vite/
+*.tsbuildinfo
+npm-debug.log*
+yarn-error.log*
+
+# --- editors / OS ------------------------------------------------------------
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# --- exports -----------------------------------------------------------------
+exports/
+*.local
+*.zip
+.venvs/

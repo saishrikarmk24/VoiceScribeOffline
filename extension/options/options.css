@@ -1,0 +1,161 @@
+body {
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  color: #0f172a;
+  background: #edf2f6;
+  margin: 0;
+  padding: 24px;
+}
+
+main {
+  max-width: 600px;
+  margin: 20px auto;
+  padding: 32px;
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 24px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
+}
+
+h1 {
+  font-size: 20px;
+  font-weight: 800;
+  margin-top: 0;
+  margin-bottom: 6px;
+  color: #0f172a;
+}
+
+h2 {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #0f766e;
+  margin: 0 0 12px;
+}
+
+p {
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 0 0 16px;
+}
+
+.section {
+  border-top: 1px solid #f1f5f9;
+  padding-top: 20px;
+  margin-top: 22px;
+}
+
+label {
+  display: block;
+  margin-top: 14px;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #334155;
+}
+
+.hint {
+  display: block;
+  font-size: 11px;
+  color: #94a3b8;
+  margin-top: 5px;
+}
+
+input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 6px;
+  padding: 10px 14px;
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 12px;
+  color: #0f172a;
+  background: #f8fafc;
+  transition: all 0.15s;
+}
+
+input:focus {
+  outline: none;
+  background: white;
+  border-color: #0f766e;
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
+}
+
+.button-row {
+  display: flex;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+button {
+  padding: 10px 18px;
+  border-radius: 12px;
+  font-weight: 700;
+  font-size: 12px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.15s;
+}
+
+button.primary {
+  background: #18181b;
+  color: white;
+}
+
+button.primary:hover {
+  background: #27272a;
+}
+
+button.secondary {
+  background: #d8ece5;
+  color: #134e4a;
+  border-color: #bce1d6;
+}
+
+button.secondary:hover {
+  background: #c8e6dc;
+}
+
+.mic-btn {
+  width: 100%;
+  background: #d8ece5;
+  border: 1px solid #bce1d6;
+  color: #134e4a;
+  padding: 12px;
+  font-size: 13px;
+}
+
+.mic-btn:hover {
+  background: #c8e6dc;
+}
+
+.alert {
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  margin-top: 14px;
+}
+
+.alert.success {
+  background: #d8ece5;
+  border: 1px solid #bce1d6;
+  color: #134e4a;
+}
+
+.alert.info {
+  background: #d9edf8;
+  border: 1px solid #bae6fd;
+  color: #0369a1;
+}
+
+.alert.error {
+  background: #fce1e8;
+  border: 1px solid #f9c8d4;
+  color: #831843;
+}

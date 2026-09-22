@@ -1,0 +1,30 @@
+{
+  "manifest_version": 3,
+  "name": "VoiceScribe AI Meet Capture",
+  "description": "Capture Google Meet audio and generate structured, evidence-linked clinical documentation with VoiceScribe AI.",
+  "version": "1.0.0",
+  "minimum_chrome_version": "116",
+  "permissions": ["sidePanel", "storage", "tabCapture", "tabs", "activeTab", "audioCapture", "offscreen", "scripting"],
+  "host_permissions": ["http://localhost/*", "http://127.0.0.1/*", "https://meet.google.com/*"],
+  "background": {
+    "service_worker": "background/service-worker.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Open VoiceScribe AI Meet Capture"
+  },
+  "side_panel": {
+    "default_path": "sidepanel/index.html"
+  },
+  "options_page": "options/index.html",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "content_scripts": [{
+    "matches": ["https://meet.google.com/*"],
+    "js": ["content/meet-speaker-detector.js"],
+    "run_at": "document_idle"
+  }]
+}

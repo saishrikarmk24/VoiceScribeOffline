@@ -1,0 +1,4 @@
+# PostgreSQL driver, installed separately because it needs a matching wheel
+# for your Python version (used by docker-compose and any Postgres deployment).
+-r requirements.txt
+asyncpg>=0.30.0

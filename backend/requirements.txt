@@ -1,0 +1,32 @@
+# MedScribe Live - backend dependencies
+# Core web framework
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+python-multipart>=0.0.12
+websockets>=13.0
+
+# Configuration & validation
+pydantic>=2.9.0
+pydantic-settings>=2.5.0
+python-dotenv>=1.0.1
+
+# Persistence
+SQLAlchemy>=2.0.35
+alembic>=1.13.3
+aiosqlite>=0.20.0          # local development / test database
+greenlet>=3.1.1            # required by SQLAlchemy async
+
+# AI provider (Google GenAI SDK - NOT the deprecated google.generativeai)
+google-genai>=0.3.0
+
+# Speech-to-Text (Offline Indic Multilingual ASR)
+faster-whisper>=1.0.3
+numpy>=1.26
+
+# Export
+reportlab>=4.2.0           # PDF export
+
+# Testing
+pytest>=8.3.0
+pytest-asyncio>=0.24.0
+httpx>=0.27.0

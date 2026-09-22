@@ -1,0 +1,52 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: medscribe
+      POSTGRES_PASSWORD: medscribe
+      POSTGRES_DB: medscribe
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U medscribe -d medscribe']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgresql+asyncpg://medscribe:medscribe@postgres:5432/medscribe
+      # Inside compose Postgres is a hard dependency - never silently fall back.
+      ALLOW_SQLITE_FALLBACK: 'false'
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+      AI_MODE: ${AI_MODE:-gemini}
+      ENABLE_DEMO_MODE: 'true'
+      ENVIRONMENT: docker
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      CORS_ORIGINS: http://localhost:5173,http://localhost:8080,http://127.0.0.1:8080
+      AUDIO_STORAGE_DIR: /app/backend/storage/audio
+    ports:
+      - '8000:8000'
+    volumes:
+      - audio_storage:/app/backend/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - '8080:80'
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+  audio_storage:
