@@ -73,19 +73,19 @@ if %errorlevel% equ 0 (
         timeout /t 3 >nul
     )
     
-    :: Check if qwen2.5:3b model is downloaded
-    ollama list | findstr /i "qwen2.5:3b" >nul 2>&1
+    :: Check if gemma2:9b model is downloaded
+    ollama list | findstr /i "gemma2:9b" >nul 2>&1
     if !errorlevel! neq 0 (
-        echo [INFO] Model 'qwen2.5:3b' not found in local library.
-        echo [INFO] Downloading 'qwen2.5:3b' (one-time setup for offline intelligence)...
-        ollama pull qwen2.5:3b
+        echo [INFO] Model 'gemma2:9b' not found in local library.
+        echo [INFO] Downloading 'gemma2:9b' (Google Gemma 2 9B Q4_K_M for offline intelligence)...
+        ollama pull gemma2:9b
     ) else (
-        echo [OK] Model 'qwen2.5:3b' is installed and ready.
+        echo [OK] Model 'gemma2:9b' is installed and ready.
     )
 ) else (
     echo [NOTICE] Ollama command not found in system PATH.
     echo If Ollama is running elsewhere, VoiceScribe will automatically connect to http://localhost:11434.
-    echo For 100%% offline AI, download Ollama from https://ollama.ai and run: ollama pull qwen2.5:3b
+    echo For 100%% offline AI, download Ollama from https://ollama.ai and run: ollama pull gemma2:9b
 )
 echo.
 
@@ -172,8 +172,9 @@ echo.
 echo  * Web App:       http://127.0.0.1:5173
 echo  * Backend API:   http://127.0.0.1:8000
 echo  * API Docs:      http://127.0.0.1:8000/docs
-echo  * Offline Model: qwen2.5:3b (Ollama)
-echo  * Speech Engine: AI4Bharat IndicConformer / Multilingual Indic ASR
+echo  * Offline Model: Google Gemma 2 9B (Ollama)
+echo  * Speech Engine: AI4Bharat IndicWhisper & Faster-Whisper Turbo
+echo  * Normalizer:    Indian Medical Phonetic Auto-Corrector Active
 echo.
 echo  Default Clinician Login:
 echo    - Email: doctor.offline@voicescribe.local

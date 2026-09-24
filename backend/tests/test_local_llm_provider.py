@@ -23,7 +23,7 @@ async def test_build_llm_provider_returns_local(monkeypatch) -> None:
 
 @pytest.mark.asyncio
 async def test_local_llm_extract_entities_success(monkeypatch) -> None:
-    provider = LocalLLMProvider(base_url="http://mock-ollama:11434/v1", model="qwen2.5:7b")
+    provider = LocalLLMProvider(base_url="http://mock-ollama:11434/v1", model="gemma2:9b")
 
     mock_llm_payload = {
         "entities": [
@@ -62,14 +62,14 @@ async def test_local_llm_extract_entities_success(monkeypatch) -> None:
     assert len(response.result.entities) == 1
     assert response.result.entities[0].value == "Persistent cough"
     assert response.result.entities[0].confidence == 0.95
-    assert response.stats.model == "qwen2.5:7b"
+    assert response.stats.model == "gemma2:9b"
     assert response.stats.provider == "local"
     await provider.aclose()
 
 
 @pytest.mark.asyncio
 async def test_local_llm_generate_note_success(monkeypatch) -> None:
-    provider = LocalLLMProvider(base_url="http://mock-ollama:11434/v1", model="qwen2.5:7b")
+    provider = LocalLLMProvider(base_url="http://mock-ollama:11434/v1", model="gemma2:9b")
 
     mock_note_payload = {
         "note": {
@@ -134,11 +134,11 @@ async def test_local_llm_connect_error(monkeypatch) -> None:
 
 @pytest.mark.asyncio
 async def test_local_llm_check_connection(monkeypatch) -> None:
-    provider = LocalLLMProvider(base_url="http://mock-ollama:11434/v1", model="qwen2.5:7b")
+    provider = LocalLLMProvider(base_url="http://mock-ollama:11434/v1", model="gemma2:9b")
 
     mock_models_response = httpx.Response(
         status_code=200,
-        json={"data": [{"id": "qwen2.5:7b"}, {"id": "llama3.1:8b"}]},
+        json={"data": [{"id": "gemma2:9b"}, {"id": "llama3.1:8b"}]},
         request=httpx.Request("GET", "http://mock-ollama:11434/v1/models"),
     )
 

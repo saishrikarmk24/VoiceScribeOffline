@@ -43,6 +43,7 @@ from app.schemas.clinical import ENTITY_KEYS, ClinicalEntityOut, ClinicalNoteCon
 from app.schemas.events import EventType, ProcessingStage
 from app.services import repository as repo
 from app.services.asr import ASRProvider, ASRUnavailable, build_asr_provider
+from app.services.asr.medical_normalizer import normalize_medical_transcript
 from app.services.audio import AudioPreprocessingService, RawAudio, SimulationAudioProvider
 from app.services.diarization import DiarizationService, build_diarization_provider
 from app.services.evidence import EvidenceLinkingService
@@ -378,7 +379,11 @@ class SessionPipeline:
         """
         await self._emit_stage(runtime, ProcessingStage.ASR, "Transcribing audio")
         try:
-            return await runtime.asr.transcribe(frame)
+            segments = await runtime.asr.transcribe(frame)
+            for seg in segments:
+                if hasattr(seg, "text") and seg.text:
+                    seg.text = normalize_medical_transcript(seg.text)
+            return segments
         except ASRUnavailable as exc:
             logger.error("asr_unavailable", extra={"session_id": runtime.session_id, "error": str(exc)})
             await self._emit_error(

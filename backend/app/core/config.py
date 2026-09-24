@@ -70,7 +70,7 @@ class Settings(BaseSettings):
 
     # --- Local / Offline LLM (Ollama / llama.cpp) --------------------------
     local_llm_base_url: str = "http://localhost:11434/v1"
-    local_llm_model: str = "qwen2.5:3b"
+    local_llm_model: str = "gemma2:9b"
     local_llm_timeout_seconds: float = 180.0
     local_llm_max_retries: int = 2
     local_llm_temperature: float = 0.1

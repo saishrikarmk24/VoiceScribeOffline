@@ -14,6 +14,7 @@ from typing import Any
 from app.core.config import settings
 from app.core.logging import get_logger, track_duration
 from app.services.asr.base import ASRProvider
+from app.services.asr.medical_normalizer import normalize_medical_transcript
 from app.services.types import ASRSegment, AudioFrame
 
 logger = get_logger(__name__)
@@ -27,10 +28,17 @@ class FasterWhisperProvider(ASRProvider):
     name = "faster_whisper"
     is_mock = False
 
-    def __init__(self, model_name: str | None = None, device: str = "auto", compute_type: str = "int8") -> None:
+    def __init__(
+        self,
+        model_name: str | None = None,
+        device: str = "auto",
+        compute_type: str = "int8",
+        initial_prompt: str | None = None,
+    ) -> None:
         self.model_name = model_name or settings.faster_whisper_model
         self.device = device
         self.compute_type = compute_type
+        self.initial_prompt = initial_prompt or getattr(settings, "indic_asr_prompt_biasing", None)
         self._model: Any | None = None
 
     def _load(self) -> Any:
@@ -55,20 +63,26 @@ class FasterWhisperProvider(ASRProvider):
         with track_duration("asr", logger, provider=self.name, session_id=audio_chunk.session_id):
             model = await asyncio.to_thread(self._load)
             wav_bytes = self._to_wav(audio_chunk)
+            transcribe_kwargs: dict[str, Any] = {
+                "beam_size": 5,
+                "vad_filter": True,
+                "word_timestamps": True,
+            }
+            if self.initial_prompt:
+                transcribe_kwargs["initial_prompt"] = self.initial_prompt
             segments, _info = await asyncio.to_thread(
                 model.transcribe,
                 io.BytesIO(wav_bytes),
-                beam_size=5,
-                vad_filter=True,
-                word_timestamps=True,
+                **transcribe_kwargs,
             )
             results: list[ASRSegment] = []
             for index, segment in enumerate(segments):
                 confidence = self._confidence(segment)
+                cleaned_text = normalize_medical_transcript(segment.text.strip())
                 results.append(
                     ASRSegment(
                         id=f"asr_{audio_chunk.sequence:04d}_{index:02d}",
-                        text=segment.text.strip(),
+                        text=cleaned_text,
                         start_time=round(audio_chunk.start_time + segment.start, 3),
                         end_time=round(audio_chunk.start_time + segment.end, 3),
                         confidence=confidence,

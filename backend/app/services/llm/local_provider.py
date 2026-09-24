@@ -1,7 +1,7 @@
 """Local LLM provider connecting to Ollama, llama.cpp, or any OpenAI-compatible local server.
 
 Operates 100% offline with zero external network connectivity or subscription fees.
-Compatible with Qwen 2.5, Llama 3.1, Llama 3.2, Mistral, and MedGemma models.
+Powered by Google Gemma 2, MedGemma, and offline clinical LLMs.
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ import httpx
 
 from app.core.config import settings
 from app.core.logging import get_logger, metrics
+from app.services.asr.medical_normalizer import normalize_segments
 from app.services.llm.base import (
     ExtractionResponse,
     LLMCallStats,
@@ -72,26 +73,73 @@ def _build_local_extraction_prompt(
     return f"""TASK: Extract clinical entities from the transcript below into valid JSON.
 Translate vernacular terms (Hindi, Tamil, Telugu, Malayalam, Bengali, Hinglish, Tanglish) into standard medical English.
 If a symptom is denied or ruled out, set status to "NEGATED".
-STRICT RULE: Extract ONLY entities that were explicitly spoken in the transcript. Do NOT invent medications.
+STRICT RULE: Extract ONLY entities that were explicitly spoken in the transcript. Do NOT invent medications or symptoms.
 
-TRANSCRIPT:
-{transcript}
-{hints_text}
-Output strictly valid JSON:
+FEW-SHOT CLINICAL EXAMPLE:
+Transcript:
+[seg_1] PATIENT: Doctor, 2 days se severe sar dard aur vomiting ho rahi hai, bukhar bilkul nahi hai.
+[seg_2] DOCTOR: BP check kiya, 140/90 mmHg. Take Tab Paracetamol 650 mg and Tab Ondem 4 mg.
+
+Output JSON:
 {{
   "entities": [
     {{
       "entity_type": "SYMPTOM",
-      "value": "chest pain",
+      "value": "headache",
       "status": "PRESENT",
       "confidence": 0.95,
-      "source_segment_ids": ["seg_001"],
+      "source_segment_ids": ["seg_1"],
+      "detail": "2 days duration"
+    }},
+    {{
+      "entity_type": "SYMPTOM",
+      "value": "vomiting",
+      "status": "PRESENT",
+      "confidence": 0.95,
+      "source_segment_ids": ["seg_1"],
       "detail": null
+    }},
+    {{
+      "entity_type": "SYMPTOM",
+      "value": "fever",
+      "status": "NEGATED",
+      "confidence": 0.95,
+      "source_segment_ids": ["seg_1"],
+      "detail": "patient denies fever"
+    }},
+    {{
+      "entity_type": "EXAMINATION_FINDING",
+      "value": "BP 140/90 mmHg",
+      "status": "PRESENT",
+      "confidence": 0.95,
+      "source_segment_ids": ["seg_2"],
+      "detail": "blood pressure"
+    }},
+    {{
+      "entity_type": "MEDICATION",
+      "value": "Paracetamol 650 mg",
+      "status": "PRESENT",
+      "confidence": 0.95,
+      "source_segment_ids": ["seg_2"],
+      "detail": "prescribed"
+    }},
+    {{
+      "entity_type": "MEDICATION",
+      "value": "Ondem 4 mg",
+      "status": "PRESENT",
+      "confidence": 0.95,
+      "source_segment_ids": ["seg_2"],
+      "detail": "antiemetic"
     }}
   ],
   "unsupported_content": []
 }}
-Allowed entity types: SYMPTOM, DIAGNOSIS, MEDICATION, DOSAGE, EXAMINATION_FINDING, ALLERGY, MEDICAL_HISTORY.
+
+NOW PROCESS THIS TRANSCRIPT:
+TRANSCRIPT:
+{transcript}
+{hints_text}
+Output strictly valid JSON with allowed entity types: SYMPTOM, DIAGNOSIS, MEDICATION, DOSAGE, EXAMINATION_FINDING, ALLERGY, MEDICAL_HISTORY.
 Allowed status values: PRESENT, NEGATED, UNCERTAIN, HISTORICAL."""
 
 
@@ -107,21 +155,42 @@ def _build_local_note_prompt(
         f"{e.get('value')} ({e.get('status')})" for e in entities if e.get("value")
     ) or "None documented"
 
-    return f"""TASK: Synthesize a professional clinical SOAP note from the transcript.
-STRICT SCRIBE SAFETY DIRECTIVE:
-- DO NOT invent, recommend, or prescribe any medications, tests, or treatments.
-- In "plan": Document ONLY what the doctor explicitly prescribed or advised in the dialogue. If the doctor did not give a treatment plan or prescribe medication, leave "plan" as "" (empty string).
-- In "current_medication": Document ONLY prior medications the patient reported taking. If none mentioned, leave as "".
-- If a section was NOT discussed, leave it as "" (empty string). Never output "Not mentioned".
-- For physical_examination: If vitals were stated (BP, pulse, temp, sugar, SpO2), format as "Vital signs: BP ...".
+    return f"""TASK: Synthesize a professional clinical SOAP note from the doctor-patient dialogue.
+Translate regional terms (Hinglish/Tanglish) to formal medical English.
 
+CRITICAL RULES:
+1. "plan": ONLY document what the DOCTOR explicitly prescribed or instructed today. If doctor gave no medication/treatment, "plan" MUST BE "" (empty string). NEVER invent treatments.
+2. "current_medication": ONLY document medications the PATIENT reported taking before this visit. If none mentioned, MUST BE "".
+3. If a section was NOT discussed, leave it as "" (empty string). NEVER output "Not mentioned".
+4. For physical_examination: If vitals were stated (BP, pulse, temp, sugar, SpO2), format as "Vital signs: BP ...".
+
+FEW-SHOT CLINICAL EXAMPLE:
+Dialogue:
+[seg_01] DOCTOR: Kya takleef hai?
+[seg_02] PATIENT: Doctor, 3 days se bukhar aur body pain hai. But cough nahi hai. Main pehle se Telma 40 le raha hu BP ke liye.
+[seg_03] DOCTOR: Theek hai. BP is 130/84 mmHg, pulse 82, temp 100.4 F. Prescribing Tab Dolo 650 mg TDS for 3 days and Pan-D 40 mg OD before breakfast. Continue your Telma 40. Blood test karwana agar fever na utre.
+
+Output JSON:
+{{
+  "chief_complaint": "Fever and generalized body pain for 3 days",
+  "history_of_present_illness": "Patient presents with fever and body aches for 3 days. Denies cough (negated).",
+  "past_medical_history": "Hypertension",
+  "physical_examination": "Vital signs: BP 130/84 mmHg, Pulse 82 bpm, Temp 100.4 F.",
+  "current_medication": "Telma 40 mg once daily (regular antihypertensive)",
+  "allergies": "",
+  "assessment": "Acute febrile illness; stable hypertension.",
+  "plan": "1. Tab Dolo 650 mg TDS x 3 days after food.\\n2. Cap Pan-D 40 mg OD x 3 days before breakfast.\\n3. Continue regular antihypertensive (Telma 40 mg).",
+  "follow_up": "Advised blood tests if fever does not subside in 3 days."
+}}
+
+NOW SYNTHESIZE THIS CONSULTATION:
 TRANSCRIPT:
 {transcript}
 
 CLINICAL FINDINGS FROM TRANSCRIPT:
 {findings}
 
-Return strictly valid JSON with these 8 sections:
+Return strictly valid JSON with these 9 sections:
 {{
   "chief_complaint": "primary symptom or reason for visit",
   "history_of_present_illness": "chronological narrative of onset, duration, character, and severity",
@@ -174,12 +243,18 @@ class LocalLLMProvider(LLMProvider):
         if is_ollama:
             ollama_base = self.base_url[:-3] if self.base_url.endswith("/v1") else self.base_url
             url = f"{ollama_base}/api/chat"
-            payload = {
-                "model": self.model,
-                "messages": [
+            if "gemma" in self.model.lower():
+                chat_messages = [
+                    {"role": "user", "content": f"{LOCAL_SYSTEM_INSTRUCTION}\n\n{prompt}"}
+                ]
+            else:
+                chat_messages = [
                     {"role": "system", "content": LOCAL_SYSTEM_INSTRUCTION},
                     {"role": "user", "content": prompt},
-                ],
+                ]
+            payload = {
+                "model": self.model,
+                "messages": chat_messages,
                 "stream": False,
                 "format": "json",
                 "options": {
@@ -199,6 +274,7 @@ class LocalLLMProvider(LLMProvider):
                 ],
                 "temperature": self.temperature,
                 "max_tokens": max_tokens,
+                "response_format": {"type": "json_object"},
                 "stream": False,
             }
 
@@ -286,8 +362,9 @@ class LocalLLMProvider(LLMProvider):
         rule_based_candidates: list[dict[str, Any]] | None = None,
         existing_entities: list[dict[str, Any]] | None = None,
     ) -> ExtractionResponse:
+        clean_segments = normalize_segments(segments)
         prompt = _build_local_extraction_prompt(
-            segments=segments,
+            segments=clean_segments,
             rule_hints=rule_based_candidates,
         )
         raw_text, stats = await self._post_chat(prompt, purpose="entity_extraction")
@@ -308,8 +385,9 @@ class LocalLLMProvider(LLMProvider):
         entities: list[dict[str, Any]],
         current_note: dict[str, Any] | None = None,
     ) -> NoteResponse:
+        clean_segments = normalize_segments(segments)
         prompt = _build_local_note_prompt(
-            segments=segments,
+            segments=clean_segments,
             entities=entities,
         )
         raw_text, stats = await self._post_chat(prompt, purpose="note_generation")
@@ -317,7 +395,7 @@ class LocalLLMProvider(LLMProvider):
             parsed_json = extract_json_object(raw_text)
             coerced = coerce_llm_payload(parsed_json, NoteUpdate)
             result = NoteUpdate.model_validate(coerced)
-            self._purge_hallucinations(result, segments, entities)
+            self._purge_hallucinations(result, clean_segments, entities)
             return NoteResponse(result=result, stats=stats)
         except Exception as exc:
             logger.warning("local_llm_note_parse_error", extra={"raw": raw_text[:400], "error": str(exc)})

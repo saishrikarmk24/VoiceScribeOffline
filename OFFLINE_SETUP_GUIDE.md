@@ -19,9 +19,9 @@ Welcome to the **100% Local Offline Edition** of VoiceScribe AI. This edition ru
    - Separates doctor and patient speaker turns locally
                     |
                     v
-3. Clinical Structuring & SOAP Note Generation: Qwen 2.5 via Ollama
+3. Clinical Structuring & SOAP Note Generation: Google Gemma 2 via Ollama
    - Local LLM server running on http://localhost:11434/v1
-   - Pydantic JSON Schema enforcement
+   - Pydantic JSON Schema enforcement with Few-Shot Clinical In-Context Learning
    - Generates Presenting Complaint, HPI, Physical Exam, Assessment, Plan & Follow-up
                     |
                     v
@@ -38,24 +38,19 @@ Welcome to the **100% Local Offline Edition** of VoiceScribe AI. This edition ru
 2. Run the installer. Ollama will start automatically in your Windows taskbar.
 
 ### Step 2: Download the Recommended Clinical Model
-Open PowerShell or Command Prompt and run **one** of the following commands:
+Open PowerShell or Command Prompt and run:
 
-* **Recommended for Standard PCs (8–16 GB RAM)**:
+* **Recommended Clinical Model (Hospital-Grade Precision)**:
   ```bash
-  ollama pull qwen2.5:7b
+  ollama pull gemma2:9b
   ```
-  *(~4.7 GB download. Rated #1 for structured medical JSON and clinical reasoning)*
+  *(~5.4 GB download. Google Gemma 2 9B Q4_K_M quantized. Top-tier clinical structuring & zero-hallucination scribe engine)*
 
-* **Lightweight Alternative for Fast CPU / Lower RAM**:
+* **Lightweight Alternative (Low VRAM / CPU-only)**:
   ```bash
-  ollama pull qwen2.5:3b
+  ollama pull gemma2:2b
   ```
-  *(~2.0 GB download. Extremely fast, lightweight, fits in 4–8 GB RAM)*
-
-* **Alternative Llama Model**:
-  ```bash
-  ollama pull llama3.1:8b
-  ```
+  *(~1.6 GB download. Extremely fast, lightweight, fits in 4–8 GB RAM)*
 
 ---
 
@@ -87,9 +82,9 @@ The `.env` file in this directory is pre-configured for offline mode:
 |---|---|---|
 | `AI_MODE` | `local` | Uses local Ollama server instead of Gemini |
 | `LOCAL_LLM_BASE_URL` | `http://localhost:11434/v1` | Local OpenAI-compatible endpoint |
-| `LOCAL_LLM_MODEL` | `qwen2.5:7b` | Name of the Ollama model to use |
-| `ASR_PROVIDER` | `faster_whisper` | Local Whisper speech-to-text |
-| `FASTER_WHISPER_MODEL` | `small.en` | Whisper model size (`small.en`, `base.en`, `medium`) |
+| `LOCAL_LLM_MODEL` | `gemma2:9b` | Name of the Ollama model to use |
+| `ASR_PROVIDER` | `indic_whisper` | AI4Bharat IndicWhisper / Faster-Whisper |
+| `FASTER_WHISPER_MODEL` | `large-v3-turbo` | Whisper model size (`large-v3-turbo`, `small`, `medium`) |
 | `DIARIZATION_PROVIDER` | `local` | Offline acoustic speaker separation |
 | `DATABASE_URL` | `sqlite+aiosqlite:///./medscribe_offline.db` | Local SQLite database |
 
@@ -101,7 +96,8 @@ The `.env` file in this directory is pre-configured for offline mode:
 |---|---|---|
 | **Internet Required** | Yes (Google Gemini API) | **No (100% Air-Gapped)** |
 | **API Costs** | Gemini API (Free tier / Pay per token) | **$0.00 Forever (Free Open Source)** |
-| **Speech-to-Text** | Gemini Audio API | **Faster-Whisper (Local CPU)** |
-| **Clinical Reasoning** | Gemini 3.7 Flash | **Qwen 2.5-7B / Llama 3.1-8B** |
+| **Speech-to-Text** | Gemini Audio API | **AI4Bharat IndicWhisper & Faster-Whisper** |
+| **Phonetic Normalizer**| Cloud LLM | **Local Indian Medical Normalizer** |
+| **Clinical Reasoning** | Gemini 3.7 Flash | **Google Gemma 2 9B (Few-Shot)** |
 | **Data Privacy** | Encrypted transit to cloud | **Never leaves host machine** |
 | **Deployment Target** | Cloud / Web SaaS / Mobile | **Hospital on-premise / Local clinic** |

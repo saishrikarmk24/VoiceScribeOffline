@@ -20,6 +20,7 @@ from typing import Any
 from app.core.config import settings
 from app.core.logging import get_logger, track_duration
 from app.services.asr.base import ASRProvider
+from app.services.asr.medical_normalizer import normalize_medical_transcript
 from app.services.types import ASRSegment, AudioFrame
 
 logger = get_logger(__name__)
@@ -175,10 +176,11 @@ class IndicWhisperASRProvider(ASRProvider):
         results: list[ASRSegment] = []
         for index, segment in enumerate(segments):
             confidence = self._confidence(segment)
+            cleaned_text = normalize_medical_transcript(segment.text.strip())
             results.append(
                 ASRSegment(
                     id=f"asr_{audio_chunk.sequence:04d}_{index:02d}",
-                    text=segment.text.strip(),
+                    text=cleaned_text,
                     start_time=round(audio_chunk.start_time + segment.start, 3),
                     end_time=round(audio_chunk.start_time + segment.end, 3),
                     confidence=confidence,
@@ -208,7 +210,7 @@ class IndicWhisperASRProvider(ASRProvider):
             generate_kwargs=generate_kwargs,
             return_timestamps=True,
         )
-        text = (output.get("text") or "").strip()
+        text = normalize_medical_transcript((output.get("text") or "").strip())
         if not text:
             return []
 

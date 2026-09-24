@@ -118,7 +118,8 @@ def create_distribution_zip(
 
 if __name__ == "__main__":
     try:
-        create_distribution_zip()
+        target_name = sys.argv[1] if len(sys.argv) > 1 else "VoiceScribe_AI_Gemma_9B_Offline_Setup.zip"
+        create_distribution_zip(output_name=target_name)
     except Exception as e:
         print(f"[ERROR] Failed to create package: {e}")
         sys.exit(1)
