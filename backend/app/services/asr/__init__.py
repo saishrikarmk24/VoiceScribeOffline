@@ -72,6 +72,14 @@ def build_asr_provider(script=None, audio_source: AudioSource | None = None) -> 
             )
         return GeminiASRProvider()
 
+    if settings.asr_provider is ASRProviderName.INDIC_WHISPER:
+        try:
+            from app.services.asr.indic_whisper_provider import IndicWhisperASRProvider
+
+            return IndicWhisperASRProvider()
+        except Exception as exc:
+            return UnavailableASRProvider(f"Failed to initialize IndicWhisper ASR: {exc}")
+
     if settings.asr_provider is ASRProviderName.INDIC_CONFORMER:
         try:
             from app.services.asr.indic_conformer_provider import IndicConformerASRProvider

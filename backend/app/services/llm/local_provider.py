@@ -34,32 +34,24 @@ from app.services.llm.schemas import ExtractionResult, NoteUpdate, coerce_llm_pa
 logger = get_logger(__name__)
 
 LOCAL_SYSTEM_INSTRUCTION = """\
-You are an expert multilingual clinical documentation AI for Indian healthcare.
-Accurately extract clinical entities and generate structured SOAP clinical documentation from doctor-patient conversations.
-The dialogue may be spoken in English, Hindi, Tamil, Telugu, Malayalam, Bengali, Marathi, Gujarati, Kannada, or code-switched Hinglish and Tanglish.
+You are an ambient clinical scribe AI for Indian healthcare.
+Your job is to ACCURATELY DOCUMENT what was spoken in the doctor-patient dialogue.
+You are a PASSIVE RECORDER, NOT A TREATING DOCTOR.
 
-CLINICAL TRANSLATION & LEXICON RULES:
-1. Translate Indian vernacular terms into standard medical English:
-   - Tamil: nenju vali / nenjil baaram -> chest pain / tightness; thalai vali -> headache; moochu vida kashtam -> shortness of breath / dyspnea; kaichal -> fever; irumal -> cough; vayiru vali -> abdominal pain; mayakkam -> dizziness/syncope.
-   - Hindi: chhati mein dard / jalan -> chest pain / retrosternal burning; sar dard -> headache; sans lene me takleef -> dyspnea; bukhar -> fever; khansi -> cough; pet dard -> abdominal pain; ulti / jee ghabrana -> vomiting / nausea.
-   - Telugu: gunde noppi -> chest pain; tala noppi -> headache; aayasam -> breathlessness / dyspnea; jwaram -> fever; daggu -> cough; kadupu noppi -> abdominal pain.
-   - Malayalam: nenju vedana -> chest pain; thala vedana -> headache; shwasam muttal -> dyspnea; pani -> fever; chuma -> cough; vayar vedana -> abdominal pain.
-   - Bengali: buke byatha -> chest pain; matha byatha -> headache; shwas kashto -> dyspnea; jor -> fever; kashi -> cough; peter byatha -> abdominal pain.
-2. Indian Pharmacopeia & Brand Normalization:
-   - Dolo 650, Calpol -> Paracetamol 650mg
-   - Pan-D, Pantocid-D -> Pantoprazole + Domperidone
-   - Augmentin -> Amoxicillin-Clavulanate
-   - Glycomet, Cetapin -> Metformin
-   - Telma, Telmikind -> Telmisartan
-   - Amlong -> Amlodipine
-   - Ecosprin -> Aspirin
-   - Montair-LC -> Montelukast + Levocetirizine
-3. Negation Preservation:
-   - When a patient denies or rules out a symptom (e.g. "no fever", "sugar illa", "chhati me dard nahi", "daggu ledu"), mark status as NEGATED.
-   - Never classify negated conditions as present diseases.
-4. Output Format:
-   - Output strictly valid JSON conforming to the requested schema.
-   - For absent sections, output an empty string "". Never write placeholder phrases like "Not mentioned".
+CRITICAL SAFETY & ZERO-HALLUCINATION RULES:
+1. NEVER invent, recommend, or prescribe any medication, treatment, diagnostic test, or lifestyle advice.
+2. In "plan": Record ONLY medications and advice explicitly prescribed by the doctor in the transcript. If the doctor did not prescribe anything or gave no treatment plan, "plan" MUST BE "" (empty string).
+3. In "current_medication": Record ONLY medications the patient explicitly reported taking prior to the visit. If none were mentioned, "current_medication" MUST BE "" (empty string).
+4. If a section was not discussed (e.g. past history, allergies, physical exam), return "" (empty string). NEVER write placeholder text like "Not mentioned".
+5. Translate vernacular terms into medical English accurately:
+   - nenju vali / chhati dard / gunde noppi / buke byatha -> chest pain
+   - thalai vali / sar dard / tala noppi / matha byatha -> headache
+   - kaichal / bukhar / jwaram / pani / jor -> fever
+   - irumal / khansi / daggu / chuma / kashi -> cough
+   - moochu vida kashtam / sans takleef / aayasam -> dyspnea / shortness of breath
+   - ulti -> vomiting; chakkar / mayakkam -> dizziness
+6. Preserved Negation: If a symptom is denied (e.g. "no fever", "kaichal illa", "ulti nahi"), mark status as "NEGATED".
+7. Every single clinical fact MUST be grounded directly in the transcript. Never extrapolate, guess, or assume.
 """
 
 
@@ -79,7 +71,8 @@ def _build_local_extraction_prompt(
 
     return f"""TASK: Extract clinical entities from the transcript below into valid JSON.
 Translate vernacular terms (Hindi, Tamil, Telugu, Malayalam, Bengali, Hinglish, Tanglish) into standard medical English.
-If a symptom is denied, use status "NEGATED".
+If a symptom is denied or ruled out, set status to "NEGATED".
+STRICT RULE: Extract ONLY entities that were explicitly spoken in the transcript. Do NOT invent medications.
 
 TRANSCRIPT:
 {transcript}
@@ -115,27 +108,30 @@ def _build_local_note_prompt(
     ) or "None documented"
 
     return f"""TASK: Synthesize a professional clinical SOAP note from the transcript.
-Translate all vernacular terms into formal medical English.
-If a section was NOT discussed, output an empty string "". Never write "Not mentioned".
-For physical_examination: If vitals were stated (BP, pulse, temp, sugar, SpO2), format as "Vital signs: BP ...".
+STRICT SCRIBE SAFETY DIRECTIVE:
+- DO NOT invent, recommend, or prescribe any medications, tests, or treatments.
+- In "plan": Document ONLY what the doctor explicitly prescribed or advised in the dialogue. If the doctor did not give a treatment plan or prescribe medication, leave "plan" as "" (empty string).
+- In "current_medication": Document ONLY prior medications the patient reported taking. If none mentioned, leave as "".
+- If a section was NOT discussed, leave it as "" (empty string). Never output "Not mentioned".
+- For physical_examination: If vitals were stated (BP, pulse, temp, sugar, SpO2), format as "Vital signs: BP ...".
 
 TRANSCRIPT:
 {transcript}
 
-CLINICAL FINDINGS:
+CLINICAL FINDINGS FROM TRANSCRIPT:
 {findings}
 
 Return strictly valid JSON with these 8 sections:
 {{
-  "chief_complaint": "1 concise line with primary symptom or reason for visit",
-  "history_of_present_illness": "Detailed chronological narrative of onset, duration, character, and severity",
-  "past_medical_history": "Pre-existing chronic conditions and surgical history (empty if none)",
-  "physical_examination": "Vitals and examination findings (empty if none)",
-  "current_medication": "Prior active medications taken before this visit (empty if none)",
-  "allergies": "Known drug or food allergies (empty if none)",
-  "assessment": "Working diagnosis or clinical impression",
-  "plan": "Doctor treatment plan, prescribed medications with dosages, and advice",
-  "follow_up": "Follow-up interval or return precautions (empty if none)"
+  "chief_complaint": "primary symptom or reason for visit",
+  "history_of_present_illness": "chronological narrative of onset, duration, character, and severity",
+  "past_medical_history": "pre-existing chronic conditions mentioned (empty string if none)",
+  "physical_examination": "vitals and examination findings mentioned (empty string if none)",
+  "current_medication": "prior active medications taken before this visit (empty string if none)",
+  "allergies": "known drug or food allergies mentioned (empty string if none)",
+  "assessment": "working diagnosis or clinical impression stated by doctor",
+  "plan": "doctor's stated plan and prescribed medications (empty string if none prescribed)",
+  "follow_up": "follow-up instruction stated by doctor (empty string if none)"
 }}"""
 
 
@@ -321,10 +317,51 @@ class LocalLLMProvider(LLMProvider):
             parsed_json = extract_json_object(raw_text)
             coerced = coerce_llm_payload(parsed_json, NoteUpdate)
             result = NoteUpdate.model_validate(coerced)
+            self._purge_hallucinations(result, segments, entities)
             return NoteResponse(result=result, stats=stats)
         except Exception as exc:
             logger.warning("local_llm_note_parse_error", extra={"raw": raw_text[:400], "error": str(exc)})
             raise LLMInvalidOutput(f"Local LLM returned malformed clinical note JSON: {exc}") from exc
+
+    @staticmethod
+    def _purge_hallucinations(
+        update: NoteUpdate,
+        segments: list[dict[str, Any]],
+        entities: list[dict[str, Any]],
+    ) -> None:
+        """Strip medications or instructions in plan and current_medication that have zero transcript support."""
+        transcript_text = " ".join(s.get("text", "") for s in segments).lower()
+
+        # 1. Purge current_medication if transcript never mentioned taking prior medications
+        curr_med_sec = update.note.current_medication
+        if curr_med_sec and curr_med_sec.text:
+            med_signals = (
+                "tab", "cap", "mg", "syrup", "daily", "dose", "medicine", "medication",
+                "taking", "dolo", "metformin", "glycomet", "telma", "pan", "pantocid",
+                "aspirin", "insulin", "sugar medicine", "bp medicine"
+            )
+            has_transcript_meds = any(sig in transcript_text for sig in med_signals)
+            if not has_transcript_meds:
+                curr_med_sec.text = ""
+
+        # 2. Purge plan if doctor never prescribed or instructed treatments
+        plan_sec = update.note.plan
+        if plan_sec and plan_sec.text:
+            doctor_segments = [
+                s.get("text", "").lower()
+                for s in segments
+                if s.get("speaker_label", "").lower() in ("doctor", "clinician", "physician")
+                or s.get("role", "") == "DOCTOR"
+            ]
+            doc_text = " ".join(doctor_segments) if doctor_segments else transcript_text
+            rx_signals = (
+                "prescrib", "take", "tab", "cap", "syrup", "daily", "mg", "dose",
+                "start", "continue", "advice", "advise", "meal", "food", "drink",
+                "test", "scan", "x-ray", "ecg", "blood", "ointment", "drops", "injection"
+            )
+            has_doctor_plan = any(sig in doc_text for sig in rx_signals)
+            if not has_doctor_plan:
+                plan_sec.text = ""
 
     async def check_connection(self) -> dict[str, Any]:
         """Verify local LLM server accessibility and model readiness."""

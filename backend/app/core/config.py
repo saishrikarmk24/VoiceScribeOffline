@@ -27,6 +27,7 @@ class AIMode(str, Enum):
 class ASRProviderName(str, Enum):
     GEMINI = "gemini"
     FASTER_WHISPER = "faster_whisper"
+    INDIC_WHISPER = "indic_whisper"
     INDIC_CONFORMER = "indic_conformer"
     MOCK = "mock"
 
@@ -88,9 +89,10 @@ class Settings(BaseSettings):
     demo_segment_interval_seconds: float = 2.5
 
     # --- pipeline providers ------------------------------------------------
-    asr_provider: ASRProviderName = ASRProviderName.INDIC_CONFORMER
+    asr_provider: ASRProviderName = ASRProviderName.INDIC_WHISPER
     diarization_provider: DiarizationProviderName = DiarizationProviderName.LOCAL
     faster_whisper_model: str = "small"
+    indic_whisper_model: str = "ai4bharat/whisper-medium-hi_alldata_multigpu"
     indic_conformer_model: str = "ai4bharat/indicconformer_stt_multi_hybrid_rnnt_600m"
     indic_asr_language: str = "auto"
     indic_asr_prompt_biasing: str = (

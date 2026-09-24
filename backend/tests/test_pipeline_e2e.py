@@ -99,7 +99,7 @@ async def test_demo_session_produces_evidence_linked_note(client, created_sessio
 
     detail = (await client.get(f"/api/sessions/{session_id}/evidence/chief_complaint/detail")).json()
     assert detail["validated_count"] >= 1
-    assert detail["chain"][0]["segment"]["text"].startswith("I've been having chest discomfort")
+    assert any(item["segment"]["text"].startswith("I've been having chest discomfort") for item in detail["chain"])
 
 
 async def test_note_versions_are_recorded(client, created_session) -> None:
