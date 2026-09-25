@@ -19,8 +19,9 @@ greenlet>=3.1.1            # required by SQLAlchemy async
 # AI provider (Google GenAI SDK - NOT the deprecated google.generativeai)
 google-genai>=0.3.0
 
-# Speech-to-Text (Offline Indic Multilingual ASR)
+# Speech-to-Text (CPU Faster-Whisper — do not add torch / pyannote here)
 faster-whisper>=1.0.3
+av>=12.0.0
 numpy>=1.26
 
 # Export

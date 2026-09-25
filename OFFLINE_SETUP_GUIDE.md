@@ -33,34 +33,13 @@ VRAM: Qwen 7B uses the GPU. Whisper stays on CPU so they do not share 6 GB.
 
 ---
 
-## One-time setup
+## One-time setup (friend's laptop)
 
-### 1. Ollama
+**Double-click `INSTALL_A_TO_Z.bat`.**
 
-Install from https://ollama.com then:
+That is the whole setup. It installs Python, Node.js, Ollama, Qwen 2.5 7B, CPU Whisper, then opens the app. No CUDA Toolkit. No PyTorch. First run can take 15–40 minutes because Qwen 7B is about 4.7 GB.
 
-```bash
-ollama pull qwen2.5:7b
-```
-
-(~4.7 GB)
-
-### 2. Python ASR extras
-
-```bash
-cd backend
-.venv\Scripts\activate
-pip install -r requirements-asr.txt
-```
-
-### 3. Start
-
-Double-click `run_offline.bat` or:
-
-```powershell
-cd D:\MedScribe-Offline
-.\run_offline.ps1
-```
+After that, use `START_VOICESCRIBE.bat` to open the app again.
 
 - App: http://localhost:5173
 - API: http://localhost:8000/docs

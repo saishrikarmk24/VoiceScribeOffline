@@ -102,45 +102,26 @@ The rule-based clinical NLP layer runs **before** the LLM and is also used **aft
 
 ---
 
-## 4. Setup
+## 4. Setup (Windows)
 
-```bash
-git clone <your-repo-url> medscribe-live
-cd medscribe-live
-cp .env.example .env      # Windows: copy .env.example .env
-```
+Send your friend the repo. On the 4050 laptop they **double-click `INSTALL_A_TO_Z.bat`**.
 
-### Backend
+That installer is the full A-to-Z path:
 
-```bash
-cd backend
-python -m venv .venv
-# Windows
-.venv\Scripts\activate
-# macOS / Linux
-source .venv/bin/activate
+1. Python 3.12 (winget, or official installer if winget is missing)
+2. Node.js LTS
+3. Visual C++ runtime (needed by Whisper)
+4. Ollama
+5. `ollama pull qwen2.5:7b`
+6. backend `.venv` + `pip install -r requirements.txt` (CPU Faster-Whisper, **not** PyTorch/CUDA)
+7. `npm install` in `frontend/`
+8. Launch http://127.0.0.1:5173
 
-pip install -r requirements.txt
-```
+Whisper stays on CPU. Only Ollama uses the NVIDIA GPU. There is no CUDA Toolkit step.
 
-For PostgreSQL, also install the async driver:
+Later launches: `START_VOICESCRIBE.bat`.
 
-```bash
-pip install -r requirements-postgres.txt
-```
-
-Optional heavy ML dependencies for real ASR / diarization (not needed for Demo Mode):
-
-```bash
-pip install -r requirements-asr.txt
-```
-
-### Frontend
-
-```bash
-cd frontend
-npm install
-```
+Manual setup (developers only) is still: copy `.env.example` to `.env`, `pip install -r backend/requirements.txt`, `npm install` in `frontend/`.
 
 ---
 

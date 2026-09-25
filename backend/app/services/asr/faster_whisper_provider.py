@@ -52,7 +52,16 @@ class FasterWhisperProvider(ASRProvider):
                 "faster-whisper is not installed. Install requirements-asr.txt and set ASR_PROVIDER=faster_whisper."
             ) from exc
         logger.info("loading_asr_model", extra={"model": self.model_name, "device": self.device})
-        self._model = WhisperModel(self.model_name, device=self.device, compute_type=self.compute_type)
+        try:
+            self._model = WhisperModel(self.model_name, device=self.device, compute_type=self.compute_type)
+        except Exception as exc:
+            logger.warning(
+                "asr_gpu_or_device_failed_using_cpu",
+                extra={"requested_device": self.device, "error": str(exc)},
+            )
+            self.device = "cpu"
+            self.compute_type = "int8"
+            self._model = WhisperModel(self.model_name, device="cpu", compute_type="int8")
         return self._model
 
     async def warmup(self) -> None:  # pragma: no cover - requires model download

@@ -44,3 +44,4 @@ exports/
 # --- logs / local GPU install noise ------------------------------------------
 *.log
 .env.gemma
+install-logs/
