@@ -72,23 +72,19 @@ def build_asr_provider(script=None, audio_source: AudioSource | None = None) -> 
             )
         return GeminiASRProvider()
 
-    if settings.asr_provider is ASRProviderName.INDIC_WHISPER:
-        try:
-            from app.services.asr.indic_whisper_provider import IndicWhisperASRProvider
-
-            return IndicWhisperASRProvider()
-        except Exception as exc:
-            return UnavailableASRProvider(f"Failed to initialize IndicWhisper ASR: {exc}")
-
-    if settings.asr_provider is ASRProviderName.INDIC_CONFORMER:
-        try:
-            from app.services.asr.indic_conformer_provider import IndicConformerASRProvider
-
-            return IndicConformerASRProvider()
-        except Exception as exc:
-            return UnavailableASRProvider(f"Failed to initialize IndicConformer ASR: {exc}")
-
-    if settings.asr_provider is ASRProviderName.FASTER_WHISPER:
+    # indic_whisper / indic_conformer are legacy values from older .env files. They
+    # needed PyTorch + CUDA; Faster-Whisper turbo on CPU already handles Hindi,
+    # Marathi, Tamil, etc. mixed with English, so they map to it.
+    if settings.asr_provider in (
+        ASRProviderName.FASTER_WHISPER,
+        ASRProviderName.INDIC_WHISPER,
+        ASRProviderName.INDIC_CONFORMER,
+    ):
+        if settings.asr_provider is not ASRProviderName.FASTER_WHISPER:
+            logger.warning(
+                "ASR_PROVIDER=%s is no longer supported; using faster_whisper on CPU instead",
+                settings.asr_provider.value,
+            )
         try:
             import faster_whisper  # noqa: F401
         except ImportError:

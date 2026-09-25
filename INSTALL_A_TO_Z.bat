@@ -6,14 +6,14 @@ echo.
 echo ==============================================================================
 echo   VoiceScribe Offline  -  one file, first-time setup on a friend's PC
 echo ==============================================================================
-echo   This installs Python, Node.js, Ollama, Qwen 2.5 7B, CPU Whisper, then
-echo   starts the app. You do NOT install CUDA Toolkit or PyTorch.
-echo   First run can take 15-40 minutes (Qwen 7B is about 4.7 GB).
+echo   Installs only what is missing, reuses your existing Ollama Qwen model,
+echo   sets up Whisper on CPU, then starts the app. No CUDA Toolkit / PyTorch.
+echo   First run downloads Whisper turbo (about 1.6 GB).
 echo ==============================================================================
 echo.
 
 cd /d "%~dp0"
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\install_a_to_z.ps1" -RepoRoot "%~dp0"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\install_a_to_z.ps1"
 set "ERR=%ERRORLEVEL%"
 echo.
 if not "%ERR%"=="0" (
