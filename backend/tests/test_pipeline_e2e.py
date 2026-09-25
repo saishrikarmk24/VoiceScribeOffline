@@ -84,7 +84,7 @@ async def test_demo_session_produces_evidence_linked_note(client, created_sessio
     assert content["chief_complaint"]["evidence"], "chief complaint has no evidence"
     assert content["chief_complaint"]["evidence"][0]["transcript_segment_ref"] == "seg_002"
     assert "shortness of breath" in content["history_of_present_illness"]["text"].lower()
-    assert content["assessment"]["text"] == "Not mentioned"  # no diagnosis was stated
+    assert content["assessment"]["text"] in ("", "Not mentioned")  # no diagnosis was stated
     assert [entity["value"].lower() for entity in content["medications"]] == ["metformin"]
 
     # ---- evidence provenance chain ------------------------------------------

@@ -1,103 +1,80 @@
-# VoiceScribe AI (100% Local Offline Edition)
+# VoiceScribe AI — offline edition (RTX 4050)
 
-Welcome to the **100% Local Offline Edition** of VoiceScribe AI. This edition runs completely air-gapped on your PC with **zero external API calls**, **zero subscription fees**, and **100% patient data privacy**.
+Runs air-gapped on a **6 GB RTX 4050 laptop**. No Gemini key. No cloud ASR.
 
----
-
-## 🏗 System Architecture
+## Pipeline (this is the whole stack)
 
 ```
-[ Consultation Audio (Microphone / Upload) ]
-                    |
-                    v
-1. Speech-to-Text: Faster-Whisper (small.en)
-   - CTranslate2 CPU int8 inference
-   - Fast, high-accuracy clinical transcription without internet
-                    |
-                    v
-2. Diarization: Local Acoustic MFCC Clustering
-   - Separates doctor and patient speaker turns locally
-                    |
-                    v
-3. Clinical Structuring & SOAP Note Generation: Google Gemma 2 via Ollama
-   - Local LLM server running on http://localhost:11434/v1
-   - Pydantic JSON Schema enforcement with Few-Shot Clinical In-Context Learning
-   - Generates Presenting Complaint, HPI, Physical Exam, Assessment, Plan & Follow-up
-                    |
-                    v
-4. Frontend Workstation (React + Vite)
-   - Real-time animated pipeline, 3-panel clinical workstation
+Mic / upload WAV (16 kHz mono)
+        │
+        ▼
+1. Preprocess          VAD, resample — CPU
+        │
+        ▼
+2. Speech-to-text      Faster-Whisper large-v3-turbo, int8, **CPU**
+                       Multilingual (Hindi / Tamil / English / mixed).
+        │
+        ▼
+3. Speakers            Local pitch clustering — CPU
+        │
+        ▼
+4. SOAP note           Qwen 2.5 7B via Ollama, Q4, **GPU** ~4.7 GB
+                       Temperature 0. Documents what was said only.
+        │
+        ▼
+5. Grounding           Invented meds / diagnoses / symptoms are DROPPED
+                       if they are not in the transcript.
+        │
+        ▼
+6. Workstation         React UI at http://localhost:5173
 ```
 
----
-
-## 🚀 Quick Start (One-Time Setup)
-
-### Step 1: Install Ollama (Free & Open Source)
-1. Download Ollama for Windows from: **[https://ollama.com](https://ollama.com)**
-2. Run the installer. Ollama will start automatically in your Windows taskbar.
-
-### Step 2: Download the Recommended Clinical Model
-Open PowerShell or Command Prompt and run:
-
-* **Recommended Clinical Model (Hospital-Grade Precision)**:
-  ```bash
-  ollama pull gemma2:9b
-  ```
-  *(~5.4 GB download. Google Gemma 2 9B Q4_K_M quantized. Top-tier clinical structuring & zero-hallucination scribe engine)*
-
-* **Lightweight Alternative (Low VRAM / CPU-only)**:
-  ```bash
-  ollama pull gemma2:2b
-  ```
-  *(~1.6 GB download. Extremely fast, lightweight, fits in 4–8 GB RAM)*
+VRAM: Qwen 7B uses the GPU. Whisper stays on CPU so they do not share 6 GB.
 
 ---
 
-## 🏃 Running the Offline System
+## One-time setup
 
-To start both the offline backend and frontend with a single click:
+### 1. Ollama
 
-* **Double-click**: `run_offline.bat`
-* **Or run in PowerShell**:
-  ```powershell
-  cd d:\MedScribe-Offline
-  .\run_offline.ps1
-  ```
+Install from https://ollama.com then:
 
-The launcher will:
-1. Verify Ollama is running and check for downloaded models.
-2. Verify `faster-whisper` speech recognition.
-3. Launch the FastAPI offline backend on `http://localhost:8000`.
-4. Launch the web application on `http://localhost:5173`.
-5. Open your browser automatically.
+```bash
+ollama pull qwen2.5:7b
+```
+
+(~4.7 GB)
+
+### 2. Python ASR extras
+
+```bash
+cd backend
+.venv\Scripts\activate
+pip install -r requirements-asr.txt
+```
+
+### 3. Start
+
+Double-click `run_offline.bat` or:
+
+```powershell
+cd D:\MedScribe-Offline
+.\run_offline.ps1
+```
+
+- App: http://localhost:5173
+- API: http://localhost:8000/docs
 
 ---
 
-## ⚙️ Environment Configuration (`.env`)
+## `.env` (already the default)
 
-The `.env` file in this directory is pre-configured for offline mode:
-
-| Variable | Setting | Description |
+| Variable | Value | Why |
 |---|---|---|
-| `AI_MODE` | `local` | Uses local Ollama server instead of Gemini |
-| `LOCAL_LLM_BASE_URL` | `http://localhost:11434/v1` | Local OpenAI-compatible endpoint |
-| `LOCAL_LLM_MODEL` | `gemma2:9b` | Name of the Ollama model to use |
-| `ASR_PROVIDER` | `indic_whisper` | AI4Bharat IndicWhisper / Faster-Whisper |
-| `FASTER_WHISPER_MODEL` | `large-v3-turbo` | Whisper model size (`large-v3-turbo`, `small`, `medium`) |
-| `DIARIZATION_PROVIDER` | `local` | Offline acoustic speaker separation |
-| `DATABASE_URL` | `sqlite+aiosqlite:///./medscribe_offline.db` | Local SQLite database |
-
----
-
-## 📊 Comparison: Cloud vs Offline Edition
-
-| Feature | Cloud Edition (`d:\MedScribe`) | Offline Edition (`d:\MedScribe-Offline`) |
-|---|---|---|
-| **Internet Required** | Yes (Google Gemini API) | **No (100% Air-Gapped)** |
-| **API Costs** | Gemini API (Free tier / Pay per token) | **$0.00 Forever (Free Open Source)** |
-| **Speech-to-Text** | Gemini Audio API | **AI4Bharat IndicWhisper & Faster-Whisper** |
-| **Phonetic Normalizer**| Cloud LLM | **Local Indian Medical Normalizer** |
-| **Clinical Reasoning** | Gemini 3.7 Flash | **Google Gemma 2 9B (Few-Shot)** |
-| **Data Privacy** | Encrypted transit to cloud | **Never leaves host machine** |
-| **Deployment Target** | Cloud / Web SaaS / Mobile | **Hospital on-premise / Local clinic** |
+| `AI_MODE` | `local` | Ollama, not Gemini |
+| `LOCAL_LLM_MODEL` | `qwen2.5:7b` | Note model on GPU |
+| `ASR_PROVIDER` | `faster_whisper` | CTranslate2 Whisper |
+| `FASTER_WHISPER_MODEL` | `large-v3-turbo` | Multilingual, including mixed Indian + English |
+| `ASR_DEVICE` | `cpu` | Leaves VRAM for Qwen 7B |
+| `ASR_COMPUTE_TYPE` | `int8` | Fast enough on CPU |
+| `DIARIZATION_PROVIDER` | `local` | CPU |

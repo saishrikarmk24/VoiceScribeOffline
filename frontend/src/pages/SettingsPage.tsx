@@ -45,8 +45,6 @@ export function SettingsPage() {
     }
   }
 
-  const geminiConfigured = Boolean(status?.ai.gemini_configured)
-
   return (
     <div className="h-full overflow-y-auto">
       <div className="mx-auto max-w-4xl space-y-4 p-5">
@@ -96,21 +94,38 @@ export function SettingsPage() {
           </div>
         </Panel>
 
-        <Panel title="AI provider" icon={<Cpu className="h-3.5 w-3.5" aria-hidden />} bodyClassName="space-y-3 p-4">
+        <Panel title="Offline pipeline (RTX 4050)" icon={<Cpu className="h-3.5 w-3.5" aria-hidden />} bodyClassName="space-y-3 p-4">
           <p className="text-xs text-navy-600">
-            Microphone audio is transcribed on this PC. Notes are structured with Gemini.
+            Audio stays on this PC. Speech-to-text is Faster-Whisper on CPU. The SOAP note is Qwen 2.5 7B via Ollama on the GPU.
+            Invented medicines and diagnoses are dropped if they are not in the transcript.
           </p>
 
-          {geminiConfigured ? (
-            <InlineAlert kind="success" title="Gemini configured">
-              Notes model: <code className="mono">{String(status?.ai.model)}</code>.
-            </InlineAlert>
+          {status?.pipeline ? (
+            <ol className="space-y-1.5 rounded border border-navy-100 bg-navy-50/40 p-3 text-xs text-navy-800">
+              <li>
+                <span className="font-semibold">1. Capture</span> — {status.pipeline.audio}
+              </li>
+              <li>
+                <span className="font-semibold">2. Transcribe</span> — {status.pipeline.asr}
+              </li>
+              <li>
+                <span className="font-semibold">3. Speakers</span> — {status.pipeline.diarization}
+              </li>
+              <li>
+                <span className="font-semibold">4. Note</span> — {status.pipeline.llm}
+              </li>
+              <li>
+                <span className="font-semibold">5. Ground</span> — {status.pipeline.grounding}
+              </li>
+            </ol>
           ) : (
-            <InlineAlert kind="warning" title="Gemini key missing">
-              Add <code className="mono">GEMINI_API_KEY</code> to <code className="mono">.env</code> and restart the
-              backend.
-            </InlineAlert>
+            <p className="text-xs text-navy-500">Load the backend to see the live pipeline.</p>
           )}
+
+          <InlineAlert kind="info" title={String(status?.pipeline?.target_gpu ?? 'NVIDIA RTX 4050 laptop (6 GB)')}>
+            {status?.pipeline?.vram_budget ??
+              'Qwen 2.5 7B Q4 ~4.7 GB on GPU. Faster-Whisper turbo int8 runs on CPU so they do not share VRAM.'}
+          </InlineAlert>
 
           <dl className="grid gap-x-4 gap-y-1.5 text-xs sm:grid-cols-2">
             {status
@@ -126,7 +141,7 @@ export function SettingsPage() {
           <div className="flex items-center gap-2">
             <button type="button" className="btn-secondary" onClick={() => void runAiCheck()} disabled={checking}>
               {checking ? <Spinner /> : <TestTube2 className="h-4 w-4" aria-hidden />}
-              Test AI connection
+              Test local LLM (Ollama)
             </button>
             {aiCheck ? (
               <span
@@ -144,10 +159,6 @@ export function SettingsPage() {
               </span>
             ) : null}
           </div>
-          <p className="text-2xs leading-relaxed text-navy-500">
-            You can also run <code className="mono">python scripts/test_gemini.py</code> for a full extraction,
-            negation and schema-validation report.
-          </p>
         </Panel>
 
         <Panel title="Pipeline providers" bodyClassName="grid gap-3 p-4 sm:grid-cols-2">
@@ -155,13 +166,13 @@ export function SettingsPage() {
             title="ASR"
             name={status?.providers.asr.name ?? '—'}
             mock={Boolean(status?.providers.asr.mock)}
-            detail="Local Faster-Whisper (small.en). Install with pip install -r requirements-asr.txt. Audio stays on this PC."
+            detail="Faster-Whisper large-v3-turbo (int8) on CPU. Multilingual. Audio never leaves this PC. Needs pip install -r requirements-asr.txt."
           />
           <ProviderCard
             title="Diarization"
             name={status?.providers.diarization.name ?? '—'}
             mock={Boolean(status?.providers.diarization.mock)}
-            detail="Local two-speaker clustering (pitch). Optional upgrade: pyannote.audio + HUGGINGFACE_TOKEN."
+            detail="Local two-speaker clustering on CPU. Do not enable pyannote on a 6 GB laptop — it would steal VRAM from Qwen 7B."
           />
           <ProviderCard
             title="Terminology"
@@ -198,8 +209,8 @@ export function SettingsPage() {
         <InlineAlert kind="info" title="Privacy and scope">
           <ul className="mt-1 list-disc space-y-0.5 pl-4">
             <li>Never enter real patient data.</li>
-            <li>The Gemini API key stays in the backend process and is never sent to the browser.</li>
-            <li>Every clinical statement must cite transcript evidence or it is flagged REVIEW REQUIRED.</li>
+            <li>Audio and notes stay on this machine. Ollama and Whisper do not call the cloud.</li>
+            <li>Every clinical statement must cite transcript evidence or it is dropped / flagged.</li>
             <li>Approval is always an explicit human action.</li>
           </ul>
         </InlineAlert>

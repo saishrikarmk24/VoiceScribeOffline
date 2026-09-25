@@ -67,7 +67,7 @@ def test_confidence_outside_range_is_clamped() -> None:
 
     unchecked = ExtractedEntity.model_construct(
         entity_type=EntityType.SYMPTOM,
-        value="fever",
+        value="chest discomfort",
         status=EntityStatus.PRESENT,
         confidence=4.2,
         source_segment_ids=["seg_002"],
@@ -86,10 +86,21 @@ def test_rule_engine_negation_overrides_a_present_status() -> None:
     assert any("negation" in issue.message for issue in result.issues)
 
 
-def test_ungrounded_value_is_flagged_but_kept() -> None:
+def test_ungrounded_clinical_entity_is_dropped() -> None:
     result = validate([entity(value="haemoptysis", source_segment_ids=["seg_001"])])
+    assert result.entities == []
+    assert result.dropped == 1
+    assert any("dropped" in issue.message for issue in result.issues)
+
+
+def test_vernacular_symptom_is_grounded() -> None:
+    result = validator.validate_entities(
+        [entity(value="fever", source_segment_ids=["seg_001"])],
+        valid_segment_refs={"seg_001"},
+        segment_texts={"seg_001": "Do din se bukhar hai."},
+    )
     assert len(result.entities) == 1
-    assert any("verbatim" in issue.message for issue in result.issues)
+    assert result.entities[0].value == "fever"
 
 
 def test_duplicate_entities_are_collapsed() -> None:
@@ -155,3 +166,4 @@ def test_not_mentioned_sections_have_no_evidence() -> None:
         valid_segment_refs=VALID_REFS,
     )
     assert result.note.follow_up.source_segment_ids == []
+    assert result.note.follow_up.text == ""

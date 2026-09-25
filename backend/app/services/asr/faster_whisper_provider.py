@@ -31,14 +31,15 @@ class FasterWhisperProvider(ASRProvider):
     def __init__(
         self,
         model_name: str | None = None,
-        device: str = "auto",
-        compute_type: str = "int8",
+        device: str | None = None,
+        compute_type: str | None = None,
         initial_prompt: str | None = None,
     ) -> None:
         self.model_name = model_name or settings.faster_whisper_model
-        self.device = device
-        self.compute_type = compute_type
-        self.initial_prompt = initial_prompt or getattr(settings, "indic_asr_prompt_biasing", None)
+        self.device = device or getattr(settings, "asr_device", "auto")
+        self.compute_type = compute_type or getattr(settings, "asr_compute_type", "int8")
+        # Drug names in initial_prompt leak into the transcript. Keep this empty.
+        self.initial_prompt = initial_prompt if initial_prompt is not None else ""
         self._model: Any | None = None
 
     def _load(self) -> Any:
@@ -66,7 +67,11 @@ class FasterWhisperProvider(ASRProvider):
             transcribe_kwargs: dict[str, Any] = {
                 "beam_size": 5,
                 "vad_filter": True,
+                "vad_parameters": {"min_silence_duration_ms": 500},
                 "word_timestamps": True,
+                "condition_on_previous_text": False,
+                "temperature": 0.0,
+                "task": "transcribe",
             }
             if self.initial_prompt:
                 transcribe_kwargs["initial_prompt"] = self.initial_prompt
@@ -97,6 +102,15 @@ class FasterWhisperProvider(ASRProvider):
                     )
                 )
             return [segment for segment in results if segment.text]
+
+    def describe(self) -> dict[str, object]:
+        return {
+            "name": self.name,
+            "mock": self.is_mock,
+            "model": self.model_name,
+            "device": self.device,
+            "compute_type": self.compute_type,
+        }
 
     @staticmethod
     def _confidence(segment: Any) -> float:  # pragma: no cover - optional dependency

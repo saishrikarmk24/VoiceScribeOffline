@@ -25,18 +25,8 @@ from app.services.types import ASRSegment, AudioFrame
 
 logger = get_logger(__name__)
 
-# Specialized clinical vocabulary prompt for code-switched Indian doctor-patient encounters
-DEFAULT_CODE_SWITCH_PROMPT = (
-    "Doctor and patient clinical discussion in Indian English, Hinglish, and Tanglish. "
-    "Common bilingual terms: Doctor, patient, clinic, hospital, fever, kaichal, bukhar, jwaram, pani, jor, "
-    "cough, irumal, khansi, daggu, chuma, kashi, cold, phlegm, "
-    "chest pain, nenju vali, chhati dard, gunde noppi, nenju vedana, buke byatha, "
-    "headache, thalai vali, sar dard, tala noppi, thala vedana, matha byatha, "
-    "breathlessness, moochu vida kashtam, sans lene me takleef, aayasam, shwasam muttal, "
-    "vomiting, ulti, dizziness, chakkar, mayakkam, "
-    "BP, blood pressure, sugar, diabetes, hypertension, tablet, syrup, injection, mg, "
-    "Dolo, Paracetamol, Glycomet, Metformin, Pantocid, Pan-D, Telma, Augmentin, daily, morning, night."
-)
+# Language hint only. Never list drug names — Whisper copies prompt words into output.
+DEFAULT_CODE_SWITCH_PROMPT = ""
 
 
 class IndicWhisperUnavailable(RuntimeError):
@@ -53,8 +43,8 @@ class IndicWhisperASRProvider(ASRProvider):
         self,
         model_name: str | None = None,
         language: str | None = None,
-        device: str = "auto",
-        compute_type: str = "int8",
+        device: str | None = None,
+        compute_type: str | None = None,
         initial_prompt: str | None = None,
     ) -> None:
         self.model_name = model_name or getattr(settings, "indic_whisper_model", "ai4bharat/whisper-medium-hi_alldata_multigpu")
@@ -65,9 +55,14 @@ class IndicWhisperASRProvider(ASRProvider):
         else:
             self.target_language = self.language
 
-        self.device = device
-        self.compute_type = compute_type
-        self.initial_prompt = initial_prompt or getattr(settings, "indic_asr_prompt_biasing", DEFAULT_CODE_SWITCH_PROMPT)
+        self.device = device or getattr(settings, "asr_device", "auto")
+        self.compute_type = compute_type or getattr(settings, "asr_compute_type", "int8")
+        self.use_transformers = bool(getattr(settings, "indic_whisper_use_transformers", False))
+        self.initial_prompt = (
+            initial_prompt
+            if initial_prompt is not None
+            else (getattr(settings, "indic_asr_prompt_biasing", "") or DEFAULT_CODE_SWITCH_PROMPT)
+        )
         self._engine: Any | None = None
         self._engine_type: str = "unknown"
 
@@ -75,37 +70,37 @@ class IndicWhisperASRProvider(ASRProvider):
         if self._engine is not None:
             return self._engine
 
-        # Strategy 1: Load via Hugging Face Transformers pipeline (if installed)
-        try:
-            import torch  # type: ignore
-            from transformers import pipeline  # type: ignore
+        # HuggingFace Transformers + whisper-medium-hi is the 4050 VRAM bomb.
+        # Only load it when explicitly enabled.
+        if self.use_transformers:
+            try:
+                import torch  # type: ignore
+                from transformers import pipeline  # type: ignore
 
-            device_str = "cuda:0" if torch.cuda.is_available() else "cpu"
-            logger.info("loading_indic_whisper_transformers", extra={"model": self.model_name, "device": device_str})
-            self._engine = pipeline(
-                "automatic-speech-recognition",
-                model=self.model_name,
-                device=device_str,
-            )
-            # Set forced decoder ids if target language is specified
-            if self.target_language and hasattr(self._engine.tokenizer, "get_decoder_prompt_ids"):
-                forced_ids = self._engine.tokenizer.get_decoder_prompt_ids(
-                    language=self.target_language,
-                    task="transcribe",
+                device_str = "cuda:0" if torch.cuda.is_available() else "cpu"
+                logger.info("loading_indic_whisper_transformers", extra={"model": self.model_name, "device": device_str})
+                self._engine = pipeline(
+                    "automatic-speech-recognition",
+                    model=self.model_name,
+                    device=device_str,
                 )
-                self._engine.model.config.forced_decoder_ids = forced_ids
+                if self.target_language and hasattr(self._engine.tokenizer, "get_decoder_prompt_ids"):
+                    forced_ids = self._engine.tokenizer.get_decoder_prompt_ids(
+                        language=self.target_language,
+                        task="transcribe",
+                    )
+                    self._engine.model.config.forced_decoder_ids = forced_ids
 
-            self._engine_type = "transformers"
-            return self._engine
-        except (ImportError, Exception) as hf_err:
-            logger.debug("transformers_indic_whisper_not_available", extra={"error": str(hf_err)})
+                self._engine_type = "transformers"
+                return self._engine
+            except (ImportError, Exception) as hf_err:
+                logger.debug("transformers_indic_whisper_not_available", extra={"error": str(hf_err)})
 
-        # Strategy 2: Fast CTranslate2 Multilingual Whisper with Code-Switching Biasing
+        # Default: multilingual Faster-Whisper (CTranslate2 int8). Fits an RTX 4050.
         try:
             from faster_whisper import WhisperModel  # type: ignore
 
-            model_id = self.model_name
-            # If the HuggingFace repo isn't locally cached or requires conversion, fall back to multilingual model
+            model_id = self.fallback_whisper_model
             try:
                 logger.info(
                     "loading_faster_whisper_indic",
@@ -153,10 +148,9 @@ class IndicWhisperASRProvider(ASRProvider):
             io.BytesIO(wav_bytes),
             language=self.target_language,
             task="transcribe",
-            initial_prompt=self.initial_prompt,
             beam_size=5,
             vad_filter=True,
-            vad_parameters=dict(min_silence_duration_ms=400),
+            vad_parameters=dict(min_silence_duration_ms=500),
             word_timestamps=True,
             condition_on_previous_text=False,
             temperature=0.0,

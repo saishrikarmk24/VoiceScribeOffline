@@ -290,6 +290,7 @@ export interface SystemStatus {
   }
   websocket: { connections: number; sessions: number }
   demo_mode_enabled: boolean
+  pipeline?: Record<string, string>
 }
 
 export interface AudioChunk {

@@ -66,6 +66,7 @@ async def system_status() -> SystemStatus:
         },
         websocket=manager.stats(),
         demo_mode_enabled=settings.enable_demo_mode,
+        pipeline=settings.pipeline_summary,
     )
 
 

@@ -6,7 +6,7 @@ import json
 import math
 import struct
 
-from app.core.config import DiarizationProviderName, settings
+from app.core.config import ASRProviderName, DiarizationProviderName, Settings, settings
 from app.models.enums import AudioSource
 from app.services.diarization import build_diarization_provider
 from app.services.diarization.local_provider import LocalDiarizationProvider
@@ -14,6 +14,16 @@ from app.services.llm.json_parse import extract_json_object
 from app.services.llm.prompts import build_extraction_prompt
 from app.services.llm.schemas import ExtractionResult, NoteUpdate, coerce_llm_payload
 from app.services.types import AudioFrame
+
+
+def test_offline_defaults_fit_rtx_4050() -> None:
+    fields = Settings.model_fields
+    assert fields["asr_provider"].default is ASRProviderName.FASTER_WHISPER
+    assert fields["faster_whisper_model"].default == "large-v3-turbo"
+    assert fields["local_llm_model"].default == "qwen2.5:7b"
+    assert fields["asr_device"].default == "cpu"
+    assert fields["indic_whisper_use_transformers"].default is False
+    assert fields["local_llm_temperature"].default == 0.0
 
 
 def _tone(seconds: float, hz: float, sample_rate: int = 16000) -> bytes:

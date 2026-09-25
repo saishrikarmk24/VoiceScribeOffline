@@ -13,6 +13,7 @@ from typing import Any
 
 from app.core.logging import get_logger
 from app.models.enums import EntityStatus, EntityType
+from app.services.llm.grounding import STRICT_ENTITY_TYPES, is_grounded
 from app.services.llm.schemas import ExtractedEntity, GeneratedNote, NoteUpdate
 
 logger = get_logger(__name__)
@@ -124,6 +125,16 @@ class OutputValidator:
                 entity.confidence = min(max(entity.confidence, 0.0), 1.0)
 
             grounded = self._is_grounded(value, refs, segment_texts)
+            if not grounded and entity.entity_type in STRICT_ENTITY_TYPES:
+                result.issues.append(
+                    ValidationIssue(
+                        "ERROR",
+                        target,
+                        "value is not supported by the cited transcript - entity dropped",
+                    )
+                )
+                result.dropped += 1
+                continue
             if not grounded:
                 result.issues.append(
                     ValidationIssue(
@@ -159,17 +170,9 @@ class OutputValidator:
 
     @staticmethod
     def _is_grounded(value: str, refs: list[str], segment_texts: dict[str, str]) -> bool:
-        """Cheap groundedness check: do the cited segments share vocabulary with the value?"""
-        cited = " ".join(segment_texts.get(ref, "") for ref in refs).lower()
-        if not cited:
-            return False
-        if value.lower() in cited:
-            return True
-        tokens = [token for token in re.findall(r"[a-z]{4,}", value.lower())]
-        if not tokens:
-            return True
-        matched = sum(1 for token in tokens if token[:5] in cited)
-        return matched / len(tokens) >= 0.5
+        """Groundedness check including Indian vernacular and brand/generic synonyms."""
+        cited = " ".join(segment_texts.get(ref, "") for ref in refs)
+        return is_grounded(value, cited)
 
     # ----------------------------------------------------------------- note
     def validate_note(
@@ -199,11 +202,12 @@ class OutputValidator:
                     lower_text = text.lower()
                     break
 
-            if not text:
-                text = "Not mentioned"
-                issues.append(ValidationIssue("WARNING", key, "empty section text replaced with 'Not mentioned'"))
+            placeholder = text.lower() in ("not mentioned", "n/a", "none", "not found")
+            if placeholder:
+                text = ""
+                issues.append(ValidationIssue("WARNING", key, "placeholder section text cleared"))
 
-            documented = text.lower() != "not mentioned"
+            documented = bool(text)
             if documented and not refs:
                 unsupported.append(key)
                 issues.append(

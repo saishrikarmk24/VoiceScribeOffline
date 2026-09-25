@@ -10,23 +10,23 @@ import re
 from typing import Sequence
 
 # Regex replacement rules: (pattern, replacement)
-# Carefully bounded with \b to avoid replacing substrings inside longer words
+# Carefully bounded with \b to avoid replacing substrings inside longer words.
+# Do NOT map everyday English ("tell me") onto drug names — that invents medications.
 _PHONETIC_RULES: list[tuple[re.Pattern[str], str]] = [
-    # --- Common Indian Pharmaceutical Brands ---
-    (re.compile(r"\b(?:tell\s*my|tel\s*my|tell\s*me|tel\s*me)\s*(\d+)\b", re.IGNORECASE), r"Telma \1"),
-    (re.compile(r"\b(?:tell\s*ma|tel\s*ma)\b", re.IGNORECASE), "Telma"),
-    (re.compile(r"\b(?:pan\s*[- ]?d|penn\s*[- ]?d|pen\s*[- ]?d)\b", re.IGNORECASE), "Pan-D"),
+    # --- Common Indian Pharmaceutical Brands (high-confidence mishears only) ---
+    (re.compile(r"\b(?:tell\s*my|tel\s*my)\s*(20|40|80)\b", re.IGNORECASE), r"Telma \1"),
+    (re.compile(r"\btelma\b", re.IGNORECASE), "Telma"),
+    (re.compile(r"\b(?:pan\s*[- ]?d|penn\s*[- ]?d)\b", re.IGNORECASE), "Pan-D"),
     (re.compile(r"\b(?:panto\s*sid|pantocid)\b", re.IGNORECASE), "Pantocid"),
     (re.compile(r"\b(?:pantodac|panto\s*dac)\b", re.IGNORECASE), "Pantodac"),
     (re.compile(r"\b(?:dolo\s*[- ]?650|dollo\s*[- ]?650|dolo\s*six\s*fifty)\b", re.IGNORECASE), "Dolo 650"),
-    (re.compile(r"\b(?:dolo)\b", re.IGNORECASE), "Dolo"),
-    (re.compile(r"\b(?:cross\s*in|crossin)\b", re.IGNORECASE), "Crocin"),
+    (re.compile(r"\b(?:crossin|crocin)\b", re.IGNORECASE), "Crocin"),
     (re.compile(r"\b(?:glyco\s*met|glycomet)\b", re.IGNORECASE), "Glycomet"),
     (re.compile(r"\b(?:met\s*formin|metformin)\b", re.IGNORECASE), "Metformin"),
     (re.compile(r"\b(?:am\s*long|amlong)\b", re.IGNORECASE), "Amlong"),
     (re.compile(r"\b(?:ogmentin|aug\s*mentin|augmentin)\b", re.IGNORECASE), "Augmentin"),
-    (re.compile(r"\b(?:azithro|azithral|azithromycin)\b", re.IGNORECASE), "Azithral"),
-    (re.compile(r"\b(?:call\s*pol|calpol)\b", re.IGNORECASE), "Calpol"),
+    (re.compile(r"\b(?:azithral|azithromycin)\b", re.IGNORECASE), "Azithral"),
+    (re.compile(r"\b(?:calpol)\b", re.IGNORECASE), "Calpol"),
     (re.compile(r"\b(?:combi\s*flam|combiflam)\b", re.IGNORECASE), "Combiflam"),
     (re.compile(r"\b(?:sef\s*tum|ceftum)\b", re.IGNORECASE), "Ceftum"),
     (re.compile(r"\b(?:claw\s*vam|clavam)\b", re.IGNORECASE), "Clavam"),

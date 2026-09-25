@@ -40,3 +40,7 @@ exports/
 *.local
 *.zip
 .venvs/
+
+# --- logs / local GPU install noise ------------------------------------------
+*.log
+.env.gemma

@@ -1,7 +1,7 @@
 """Local LLM provider connecting to Ollama, llama.cpp, or any OpenAI-compatible local server.
 
-Operates 100% offline with zero external network connectivity or subscription fees.
-Powered by Google Gemma 2, MedGemma, and offline clinical LLMs.
+Default stack for an RTX 4050 laptop (6 GB): Qwen 2.5 7B via Ollama on GPU,
+Faster-Whisper on CPU so the two models do not share VRAM.
 """
 
 from __future__ import annotations
@@ -15,44 +15,37 @@ from typing import Any
 import httpx
 
 from app.core.config import settings
-from app.core.logging import get_logger, metrics
+from app.core.logging import get_logger
 from app.services.asr.medical_normalizer import normalize_segments
 from app.services.llm.base import (
     ExtractionResponse,
     LLMCallStats,
     LLMError,
     LLMInvalidOutput,
-    LLMNotConfigured,
     LLMProvider,
     LLMTimeout,
     LLMUnavailable,
     NoteResponse,
 )
+from app.services.llm.grounding import filter_ungrounded_entities, purge_note_hallucinations
 from app.services.llm.json_parse import extract_json_object
-from app.services.llm.prompts import CONNECTION_TEST_PROMPT
 from app.services.llm.schemas import ExtractionResult, NoteUpdate, coerce_llm_payload
 
 logger = get_logger(__name__)
 
 LOCAL_SYSTEM_INSTRUCTION = """\
-You are an ambient clinical scribe AI for Indian healthcare.
-Your job is to ACCURATELY DOCUMENT what was spoken in the doctor-patient dialogue.
-You are a PASSIVE RECORDER, NOT A TREATING DOCTOR.
+You are an ambient clinical scribe for Indian outpatient care.
+You DOCUMENT what was spoken. You are not a doctor.
 
-CRITICAL SAFETY & ZERO-HALLUCINATION RULES:
-1. NEVER invent, recommend, or prescribe any medication, treatment, diagnostic test, or lifestyle advice.
-2. In "plan": Record ONLY medications and advice explicitly prescribed by the doctor in the transcript. If the doctor did not prescribe anything or gave no treatment plan, "plan" MUST BE "" (empty string).
-3. In "current_medication": Record ONLY medications the patient explicitly reported taking prior to the visit. If none were mentioned, "current_medication" MUST BE "" (empty string).
-4. If a section was not discussed (e.g. past history, allergies, physical exam), return "" (empty string). NEVER write placeholder text like "Not mentioned".
-5. Translate vernacular terms into medical English accurately:
-   - nenju vali / chhati dard / gunde noppi / buke byatha -> chest pain
-   - thalai vali / sar dard / tala noppi / matha byatha -> headache
-   - kaichal / bukhar / jwaram / pani / jor -> fever
-   - irumal / khansi / daggu / chuma / kashi -> cough
-   - moochu vida kashtam / sans takleef / aayasam -> dyspnea / shortness of breath
-   - ulti -> vomiting; chakkar / mayakkam -> dizziness
-6. Preserved Negation: If a symptom is denied (e.g. "no fever", "kaichal illa", "ulti nahi"), mark status as "NEGATED".
-7. Every single clinical fact MUST be grounded directly in the transcript. Never extrapolate, guess, or assume.
+HARD RULES:
+- Extract and write ONLY facts that appear in the transcript.
+- NEVER invent medications, doses, tests, diagnoses, or advice.
+- If the doctor did not prescribe anything, plan must be "".
+- If the patient did not name a current medicine, current_medication must be "".
+- If a section was not discussed, return "".
+- Translate vernacular (Hindi/Tamil/Telugu/Malayalam/Bengali/Hinglish) into clinical English.
+- Denied symptoms (nahi, illa, no fever) have status NEGATED.
+- Output valid JSON only.
 """
 
 
@@ -68,79 +61,28 @@ def _build_local_extraction_prompt(
     if rule_hints:
         valid_hints = [h for h in rule_hints if h.get("value")]
         if valid_hints:
-            hints_text = f"CANDIDATES: {json.dumps(valid_hints, default=str)}\n"
+            hints_text = (
+                "HINTS (verify against transcript, discard if not spoken): "
+                f"{json.dumps(valid_hints, default=str)}\n"
+            )
 
-    return f"""TASK: Extract clinical entities from the transcript below into valid JSON.
-Translate vernacular terms (Hindi, Tamil, Telugu, Malayalam, Bengali, Hinglish, Tanglish) into standard medical English.
-If a symptom is denied or ruled out, set status to "NEGATED".
-STRICT RULE: Extract ONLY entities that were explicitly spoken in the transcript. Do NOT invent medications or symptoms.
+    return f"""Extract clinical entities spoken in this transcript. JSON only.
 
-FEW-SHOT CLINICAL EXAMPLE:
-Transcript:
-[seg_1] PATIENT: Doctor, 2 days se severe sar dard aur vomiting ho rahi hai, bukhar bilkul nahi hai.
-[seg_2] DOCTOR: BP check kiya, 140/90 mmHg. Take Tab Paracetamol 650 mg and Tab Ondem 4 mg.
+Example — transcript:
+[seg_1] PATIENT: 2 days se sar dard, bukhar nahi hai.
+Correct JSON:
+{{"entities":[
+  {{"entity_type":"SYMPTOM","value":"headache","status":"PRESENT","confidence":0.9,"source_segment_ids":["seg_1"],"detail":"2 days"}},
+  {{"entity_type":"SYMPTOM","value":"fever","status":"NEGATED","confidence":0.9,"source_segment_ids":["seg_1"],"detail":null}}
+],"unsupported_content":[]}}
 
-Output JSON:
-{{
-  "entities": [
-    {{
-      "entity_type": "SYMPTOM",
-      "value": "headache",
-      "status": "PRESENT",
-      "confidence": 0.95,
-      "source_segment_ids": ["seg_1"],
-      "detail": "2 days duration"
-    }},
-    {{
-      "entity_type": "SYMPTOM",
-      "value": "vomiting",
-      "status": "PRESENT",
-      "confidence": 0.95,
-      "source_segment_ids": ["seg_1"],
-      "detail": null
-    }},
-    {{
-      "entity_type": "SYMPTOM",
-      "value": "fever",
-      "status": "NEGATED",
-      "confidence": 0.95,
-      "source_segment_ids": ["seg_1"],
-      "detail": "patient denies fever"
-    }},
-    {{
-      "entity_type": "EXAMINATION_FINDING",
-      "value": "BP 140/90 mmHg",
-      "status": "PRESENT",
-      "confidence": 0.95,
-      "source_segment_ids": ["seg_2"],
-      "detail": "blood pressure"
-    }},
-    {{
-      "entity_type": "MEDICATION",
-      "value": "Paracetamol 650 mg",
-      "status": "PRESENT",
-      "confidence": 0.95,
-      "source_segment_ids": ["seg_2"],
-      "detail": "prescribed"
-    }},
-    {{
-      "entity_type": "MEDICATION",
-      "value": "Ondem 4 mg",
-      "status": "PRESENT",
-      "confidence": 0.95,
-      "source_segment_ids": ["seg_2"],
-      "detail": "antiemetic"
-    }}
-  ],
-  "unsupported_content": []
-}}
+Do NOT add medications unless a named drug was spoken. This example has none — do not copy drugs into the answer.
 
-NOW PROCESS THIS TRANSCRIPT:
 TRANSCRIPT:
 {transcript}
 {hints_text}
-Output strictly valid JSON with allowed entity types: SYMPTOM, DIAGNOSIS, MEDICATION, DOSAGE, EXAMINATION_FINDING, ALLERGY, MEDICAL_HISTORY.
-Allowed status values: PRESENT, NEGATED, UNCERTAIN, HISTORICAL."""
+Return JSON with entities of types SYMPTOM, DIAGNOSIS_MENTIONED, MEDICATION, FINDING, ALLERGY, MEDICAL_HISTORY.
+status: PRESENT, NEGATED, UNCERTAIN, HISTORICAL."""
 
 
 def _build_local_note_prompt(
@@ -155,53 +97,20 @@ def _build_local_note_prompt(
         f"{e.get('value')} ({e.get('status')})" for e in entities if e.get("value")
     ) or "None documented"
 
-    return f"""TASK: Synthesize a professional clinical SOAP note from the doctor-patient dialogue.
-Translate regional terms (Hinglish/Tanglish) to formal medical English.
+    return f"""Write a SOAP note from this dialogue. JSON only. Empty string if not discussed.
 
-CRITICAL RULES:
-1. "plan": ONLY document what the DOCTOR explicitly prescribed or instructed today. If doctor gave no medication/treatment, "plan" MUST BE "" (empty string). NEVER invent treatments.
-2. "current_medication": ONLY document medications the PATIENT reported taking before this visit. If none mentioned, MUST BE "".
-3. If a section was NOT discussed, leave it as "" (empty string). NEVER output "Not mentioned".
-4. For physical_examination: If vitals were stated (BP, pulse, temp, sugar, SpO2), format as "Vital signs: BP ...".
+Example — fever and body pain; doctor says rest and fluids; no named drug:
+{{"chief_complaint":"Fever and body pain","history_of_present_illness":"Patient reports fever and body pain.","past_medical_history":"","physical_examination":"","current_medication":"","allergies":"","assessment":"","plan":"Rest and oral fluids as advised.","follow_up":""}}
 
-FEW-SHOT CLINICAL EXAMPLE:
-Dialogue:
-[seg_01] DOCTOR: Kya takleef hai?
-[seg_02] PATIENT: Doctor, 3 days se bukhar aur body pain hai. But cough nahi hai. Main pehle se Telma 40 le raha hu BP ke liye.
-[seg_03] DOCTOR: Theek hai. BP is 130/84 mmHg, pulse 82, temp 100.4 F. Prescribing Tab Dolo 650 mg TDS for 3 days and Pan-D 40 mg OD before breakfast. Continue your Telma 40. Blood test karwana agar fever na utre.
+NEVER invent a tablet, syrup, or diagnosis. If the doctor did not name a drug, plan must not contain one.
 
-Output JSON:
-{{
-  "chief_complaint": "Fever and generalized body pain for 3 days",
-  "history_of_present_illness": "Patient presents with fever and body aches for 3 days. Denies cough (negated).",
-  "past_medical_history": "Hypertension",
-  "physical_examination": "Vital signs: BP 130/84 mmHg, Pulse 82 bpm, Temp 100.4 F.",
-  "current_medication": "Telma 40 mg once daily (regular antihypertensive)",
-  "allergies": "",
-  "assessment": "Acute febrile illness; stable hypertension.",
-  "plan": "1. Tab Dolo 650 mg TDS x 3 days after food.\\n2. Cap Pan-D 40 mg OD x 3 days before breakfast.\\n3. Continue regular antihypertensive (Telma 40 mg).",
-  "follow_up": "Advised blood tests if fever does not subside in 3 days."
-}}
-
-NOW SYNTHESIZE THIS CONSULTATION:
 TRANSCRIPT:
 {transcript}
 
-CLINICAL FINDINGS FROM TRANSCRIPT:
+EXTRACTED FINDINGS (already checked against the transcript):
 {findings}
 
-Return strictly valid JSON with these 9 sections:
-{{
-  "chief_complaint": "primary symptom or reason for visit",
-  "history_of_present_illness": "chronological narrative of onset, duration, character, and severity",
-  "past_medical_history": "pre-existing chronic conditions mentioned (empty string if none)",
-  "physical_examination": "vitals and examination findings mentioned (empty string if none)",
-  "current_medication": "prior active medications taken before this visit (empty string if none)",
-  "allergies": "known drug or food allergies mentioned (empty string if none)",
-  "assessment": "working diagnosis or clinical impression stated by doctor",
-  "plan": "doctor's stated plan and prescribed medications (empty string if none prescribed)",
-  "follow_up": "follow-up instruction stated by doctor (empty string if none)"
-}}"""
+Return JSON with keys: chief_complaint, history_of_present_illness, past_medical_history, physical_examination, current_medication, allergies, assessment, plan, follow_up."""
 
 
 class LocalLLMProvider(LLMProvider):
@@ -236,14 +145,15 @@ class LocalLLMProvider(LLMProvider):
 
     async def _post_chat(self, prompt: str, *, purpose: str) -> tuple[str, LLMCallStats]:
         client = self._get_client()
-        num_ctx = getattr(settings, "local_llm_num_ctx", 1536)
-        max_tokens = getattr(settings, "local_llm_max_tokens", 500)
+        num_ctx = getattr(settings, "local_llm_num_ctx", 2048)
+        max_tokens = getattr(settings, "local_llm_max_tokens", 600)
 
         is_ollama = "11434" in self.base_url
         if is_ollama:
             ollama_base = self.base_url[:-3] if self.base_url.endswith("/v1") else self.base_url
             url = f"{ollama_base}/api/chat"
-            if "gemma" in self.model.lower():
+            model_l = self.model.lower()
+            if "gemma" in model_l:
                 chat_messages = [
                     {"role": "user", "content": f"{LOCAL_SYSTEM_INSTRUCTION}\n\n{prompt}"}
                 ]
@@ -293,7 +203,10 @@ class LocalLLMProvider(LLMProvider):
                     f"Could not connect to local LLM at {self.base_url}. "
                     "Ensure Ollama or local LLM server is running (e.g. 'ollama serve')."
                 )
-                logger.warning("local_llm_connect_failed", extra={"purpose": purpose, "attempt": attempts, "error": str(exc)})
+                logger.warning(
+                    "local_llm_connect_failed",
+                    extra={"purpose": purpose, "attempt": attempts, "error": str(exc)},
+                )
             except httpx.TimeoutException as exc:
                 last_error = LLMTimeout(f"Local LLM call timed out after {self.timeout_seconds:.0f}s")
                 logger.warning("local_llm_timeout", extra={"purpose": purpose, "attempt": attempts})
@@ -372,6 +285,17 @@ class LocalLLMProvider(LLMProvider):
             parsed_json = extract_json_object(raw_text)
             coerced = coerce_llm_payload(parsed_json, ExtractionResult)
             result = ExtractionResult.model_validate(coerced)
+            segment_texts = {
+                str(s.get("ref", "")): str(s.get("text", "")) for s in clean_segments
+            }
+            kept, dropped = filter_ungrounded_entities(
+                result.entities,
+                segment_texts=segment_texts,
+                full_transcript=" ".join(segment_texts.values()),
+            )
+            if dropped:
+                logger.info("local_llm_dropped_ungrounded_entities", extra={"dropped": dropped})
+            result.entities = kept
             return ExtractionResponse(result=result, stats=stats)
         except Exception as exc:
             logger.warning("local_llm_extraction_parse_error", extra={"raw": raw_text[:400], "error": str(exc)})
@@ -395,63 +319,20 @@ class LocalLLMProvider(LLMProvider):
             parsed_json = extract_json_object(raw_text)
             coerced = coerce_llm_payload(parsed_json, NoteUpdate)
             result = NoteUpdate.model_validate(coerced)
-            self._purge_hallucinations(result, clean_segments, entities)
+            purge_note_hallucinations(result, clean_segments, entities)
             return NoteResponse(result=result, stats=stats)
         except Exception as exc:
             logger.warning("local_llm_note_parse_error", extra={"raw": raw_text[:400], "error": str(exc)})
             raise LLMInvalidOutput(f"Local LLM returned malformed clinical note JSON: {exc}") from exc
 
-    @staticmethod
-    def _purge_hallucinations(
-        update: NoteUpdate,
-        segments: list[dict[str, Any]],
-        entities: list[dict[str, Any]],
-    ) -> None:
-        """Strip medications or instructions in plan and current_medication that have zero transcript support."""
-        transcript_text = " ".join(s.get("text", "") for s in segments).lower()
-
-        # 1. Purge current_medication if transcript never mentioned taking prior medications
-        curr_med_sec = update.note.current_medication
-        if curr_med_sec and curr_med_sec.text:
-            med_signals = (
-                "tab", "cap", "mg", "syrup", "daily", "dose", "medicine", "medication",
-                "taking", "dolo", "metformin", "glycomet", "telma", "pan", "pantocid",
-                "aspirin", "insulin", "sugar medicine", "bp medicine"
-            )
-            has_transcript_meds = any(sig in transcript_text for sig in med_signals)
-            if not has_transcript_meds:
-                curr_med_sec.text = ""
-
-        # 2. Purge plan if doctor never prescribed or instructed treatments
-        plan_sec = update.note.plan
-        if plan_sec and plan_sec.text:
-            doctor_segments = [
-                s.get("text", "").lower()
-                for s in segments
-                if s.get("speaker_label", "").lower() in ("doctor", "clinician", "physician")
-                or s.get("role", "") == "DOCTOR"
-            ]
-            doc_text = " ".join(doctor_segments) if doctor_segments else transcript_text
-            rx_signals = (
-                "prescrib", "take", "tab", "cap", "syrup", "daily", "mg", "dose",
-                "start", "continue", "advice", "advise", "meal", "food", "drink",
-                "test", "scan", "x-ray", "ecg", "blood", "ointment", "drops", "injection"
-            )
-            has_doctor_plan = any(sig in doc_text for sig in rx_signals)
-            if not has_doctor_plan:
-                plan_sec.text = ""
-
     async def check_connection(self) -> dict[str, Any]:
         """Verify local LLM server accessibility and model readiness."""
         client = self._get_client()
         try:
-            # Query /models endpoint supported by Ollama, vLLM, and llama.cpp
             resp = await client.get("/models")
             resp.raise_for_status()
             models_data = resp.json()
-            available_models = [
-                m.get("id", "") for m in (models_data.get("data") or [])
-            ]
+            available_models = [m.get("id", "") for m in (models_data.get("data") or [])]
             has_target = any(self.model in m for m in available_models)
             return {
                 "ok": True,

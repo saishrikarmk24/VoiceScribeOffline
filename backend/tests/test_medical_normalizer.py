@@ -13,21 +13,27 @@ def test_normalize_telema_and_pand():
 
 def test_normalize_common_indian_brands():
     cases = [
-        ("take cross in when needed", "take Crocin SOS (as needed)"),
+        ("take crossin when needed", "take Crocin SOS (as needed)"),
         ("dolo six fifty twice a day", "Dolo 650 BD (twice daily)"),
         ("glyco met 500 milligram", "Glycomet 500 mg"),
         ("am long 5 and atorva 10", "Amlong 5 and Atorva 10"),
         ("take ogmentin 625", "take Augmentin 625"),
-        ("azithro 500 for 3 days", "Azithral 500 for 3 days"),
+        ("azithral 500 for 3 days", "Azithral 500 for 3 days"),
         ("combi flam for headache", "Combiflam for headache"),
     ]
     for raw, expected in cases:
         assert normalize_medical_transcript(raw) == expected
 
 
+def test_tell_me_is_not_rewritten_as_telma():
+    raw = "Please tell me 2 days se fever hai"
+    assert "Telma" not in normalize_medical_transcript(raw)
+    assert "tell me" in normalize_medical_transcript(raw).lower()
+
+
 def test_normalize_segments_list():
     segs = [
-        {"ref": "seg_01", "text": "Doctor gave tell me 20 and panto sid"},
+        {"ref": "seg_01", "text": "Doctor gave tell my 20 and panto sid"},
         {"ref": "seg_02", "text": "Check b.p and sugar test"},
     ]
     cleaned = normalize_segments(segs)

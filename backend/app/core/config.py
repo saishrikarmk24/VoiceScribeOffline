@@ -10,7 +10,7 @@ from enum import Enum
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field, field_validator
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
@@ -69,11 +69,12 @@ class Settings(BaseSettings):
     gemini_temperature: float = 0.1
 
     # --- Local / Offline LLM (Ollama / llama.cpp) --------------------------
+    # RTX 4050 (6 GB): Qwen 2.5 7B Q4 ~4.7 GB on GPU. Keep Whisper on CPU.
     local_llm_base_url: str = "http://localhost:11434/v1"
-    local_llm_model: str = "gemma2:9b"
+    local_llm_model: str = "qwen2.5:7b"
     local_llm_timeout_seconds: float = 180.0
     local_llm_max_retries: int = 2
-    local_llm_temperature: float = 0.1
+    local_llm_temperature: float = 0.0
     local_llm_num_ctx: int = 2048
     local_llm_max_tokens: int = 600
 
@@ -89,18 +90,18 @@ class Settings(BaseSettings):
     demo_segment_interval_seconds: float = 2.5
 
     # --- pipeline providers ------------------------------------------------
-    asr_provider: ASRProviderName = ASRProviderName.INDIC_WHISPER
+    # RTX 4050 (6 GB): Whisper on CPU so Qwen 7B can use the GPU.
+    asr_provider: ASRProviderName = ASRProviderName.FASTER_WHISPER
     diarization_provider: DiarizationProviderName = DiarizationProviderName.LOCAL
-    faster_whisper_model: str = "small"
+    faster_whisper_model: str = "large-v3-turbo"
+    asr_device: str = "cpu"
+    asr_compute_type: str = "int8"
     indic_whisper_model: str = "ai4bharat/whisper-medium-hi_alldata_multigpu"
+    indic_whisper_use_transformers: bool = False
     indic_conformer_model: str = "ai4bharat/indicconformer_stt_multi_hybrid_rnnt_600m"
     indic_asr_language: str = "auto"
-    indic_asr_prompt_biasing: str = (
-        "Medical consultation in Hindi, Tamil, Telugu, Malayalam, Bengali, Hinglish, Tanglish. "
-        "Symptoms: chest pain, nenju vali, chhati me dard, bukhar, kaichal, jwaram, pani, jor, "
-        "cough, irumal, khansi, daggu, chuma, kashi, breathlessness, moochu vida kashtam, sans lene me takleef, "
-        "sugar, diabetes, BP, hypertension, dolo, paracetamol, metformin, glycomet, pantocid."
-    )
+    # Never list drug names here — Whisper copies initial_prompt into the transcript.
+    indic_asr_prompt_biasing: str = ""
     pyannote_model: str = "pyannote/speaker-diarization-3.1"
     huggingface_token: str | None = None
 
@@ -173,6 +174,25 @@ class Settings(BaseSettings):
     @property
     def is_sqlite(self) -> bool:
         return self.database_url.startswith("sqlite")
+
+    @property
+    def pipeline_summary(self) -> dict[str, str]:
+        """Single source of truth for the offline stack shown in Settings."""
+        asr = self.asr_provider.value
+        asr_model = (
+            self.faster_whisper_model
+            if asr in ("faster_whisper", "indic_whisper")
+            else self.indic_whisper_model
+        )
+        return {
+            "target_gpu": "NVIDIA RTX 4050 laptop (6 GB VRAM)",
+            "audio": "Browser 16 kHz mono WAV → local preprocess (VAD)",
+            "asr": f"{asr} / {asr_model} ({self.asr_compute_type} on {self.asr_device})",
+            "diarization": self.diarization_provider.value,
+            "llm": f"{self.effective_ai_mode.value} / {self.local_llm_model if self.effective_ai_mode.value in ('local', 'ollama') else self.gemini_model}",
+            "grounding": "Entities and plan/assessment must match the transcript or they are dropped",
+            "vram_budget": "Qwen 2.5 7B Q4 ~4.7 GB on GPU; Faster-Whisper turbo int8 on CPU",
+        }
 
 
 @lru_cache

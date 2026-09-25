@@ -117,3 +117,4 @@ class SystemStatus(BaseModel):
     providers: dict
     websocket: dict
     demo_mode_enabled: bool
+    pipeline: dict = Field(default_factory=dict)

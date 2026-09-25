@@ -23,8 +23,8 @@ try {
     
     # Check if target model is present
     $modelNames = $response.models | ForEach-Object { $_.name }
-    $targetModel = "gemma2:9b"
-    $hasModel = $modelNames | Where-Object { $_ -like "*$targetModel*" -or $_ -like "*gemma2*" }
+    $targetModel = "qwen2.5:7b"
+    $hasModel = $modelNames | Where-Object { $_ -like "*$targetModel*" -or $_ -like "*qwen2.5:7b*" -or $_ -like "*qwen2.5*" }
     
     if ($hasModel) {
         Write-Host "  [+] Found clinical model: $hasModel" -ForegroundColor Green
@@ -35,7 +35,7 @@ try {
     Write-Host "  [-] Ollama is not currently running at http://localhost:11434" -ForegroundColor Yellow
     Write-Host "      To use local offline AI note generation:" -ForegroundColor Yellow
     Write-Host "      1. Download free Ollama from https://ollama.com" -ForegroundColor Yellow
-    Write-Host "      2. Run: ollama pull gemma2:9b" -ForegroundColor Yellow
+    Write-Host "      2. Run: ollama pull qwen2.5:7b" -ForegroundColor Yellow
     Write-Host "      Note: The system will gracefully use local rule-based draft parsing until Ollama starts." -ForegroundColor Gray
 }
 
