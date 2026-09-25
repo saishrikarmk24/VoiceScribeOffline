@@ -36,7 +36,7 @@ if %errorlevel% equ 0 (
 
 :: 1. Start Backend
 echo [1/3] Starting Python Backend on http://127.0.0.1:8000 ...
-start "VoiceScribe AI - Backend" cmd /k "cd /d ""%~dp0backend"" && set CUDA_VISIBLE_DEVICES=-1&& set CTRANSLATE2_CUDA=0&& call .venv\Scripts\activate.bat && python -m uvicorn app.main:app --host 127.0.0.1 --port 8000"
+start "VoiceScribe AI - Backend" cmd /k "cd /d ""%~dp0backend"" && set CUDA_VISIBLE_DEVICES=-1&& set CTRANSLATE2_CUDA=0&& set HF_HUB_DISABLE_XET=1&& call .venv\Scripts\activate.bat && python -m uvicorn app.main:app --host 127.0.0.1 --port 8000"
 
 timeout /t 2 >nul
 

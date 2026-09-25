@@ -280,18 +280,40 @@ if (-not (Test-Path $VenvPython)) {
 if ($LASTEXITCODE -ne 0) { Stop-Install "pip install -r backend\requirements.txt failed (see messages above)." }
 Write-Ok "Python packages installed"
 
-Write-Host "  Downloading / loading Whisper large-v3-turbo on CPU (about 1.6 GB first time)..."
-$whisperCheckPath = Join-Path $env:TEMP "voicescribe_whisper_check.py"
-@"
-from faster_whisper import WhisperModel
-WhisperModel('large-v3-turbo', device='cpu', compute_type='int8')
-print('WHISPER_CPU_OK')
-"@ | Set-Content -Path $whisperCheckPath -Encoding ASCII
-& $VenvPython $whisperCheckPath
-if ($LASTEXITCODE -ne 0) {
-    Write-Warn "Whisper failed to load on CPU. Install the VC++ runtime (step 1 link) and rerun."
-} else {
-    Write-Ok "Whisper is ready on CPU"
+# The Python Hugging Face client can stall at 0 bytes on some Windows networks,
+# so fetch the files with curl.exe (resumable) into backend\models.
+Write-Host "  Downloading Whisper large-v3-turbo (about 1.6 GB, resumes if interrupted)..."
+$WhisperDir = Join-Path $Backend "models\faster-whisper-large-v3-turbo"
+New-Item -ItemType Directory -Force -Path $WhisperDir | Out-Null
+$WhisperBase = "https://huggingface.co/mobiuslabsgmbh/faster-whisper-large-v3-turbo/resolve/main"
+$whisperOk = $true
+foreach ($file in @("config.json", "preprocessor_config.json", "tokenizer.json", "vocabulary.json", "model.bin")) {
+    $dest = Join-Path $WhisperDir $file
+    if (Test-Path $dest) { continue }
+    $part = "$dest.part"
+    Write-Host "    $file"
+    for ($try = 1; $try -le 5; $try++) {
+        & curl.exe -L --fail --retry 5 --retry-delay 3 --speed-limit 10000 --speed-time 60 -C - -# -o $part "$WhisperBase/$file"
+        if ($LASTEXITCODE -eq 0) { break }
+        Write-Warn "Download of $file interrupted (curl exit $LASTEXITCODE), retry $try/5..."
+        Start-Sleep -Seconds 3
+    }
+    if ($LASTEXITCODE -eq 0) {
+        Move-Item -Force $part $dest
+    } else {
+        $whisperOk = $false
+        Write-Warn "Could not download $file. Check internet and rerun; it resumes where it stopped."
+    }
+}
+
+if ($whisperOk) {
+    Write-Host "  Loading Whisper on CPU..."
+    & $VenvPython -c "from faster_whisper import WhisperModel; WhisperModel(r'$WhisperDir', device='cpu', compute_type='int8'); print('WHISPER_CPU_OK')"
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warn "Whisper failed to load on CPU. Install the VC++ runtime (step 1 link) and rerun."
+    } else {
+        Write-Ok "Whisper is ready on CPU ($WhisperDir)"
+    }
 }
 
 & $VenvPython -c "import asyncio; from app.core.database import init_database, dispose_database; asyncio.run(init_database()); asyncio.run(dispose_database())"
@@ -307,7 +329,7 @@ Write-Ok "Frontend ready"
 # --- 8. Launch --------------------------------------------------------------
 Write-Step 8 "Launching VoiceScribe"
 Set-Location $RepoRoot
-$backendCmd = "cd /d `"$Backend`" && set CUDA_VISIBLE_DEVICES=-1&& `".venv\Scripts\python.exe`" -m uvicorn app.main:app --host 127.0.0.1 --port 8000"
+$backendCmd = "cd /d `"$Backend`" && set CUDA_VISIBLE_DEVICES=-1&& set HF_HUB_DISABLE_XET=1&& `".venv\Scripts\python.exe`" -m uvicorn app.main:app --host 127.0.0.1 --port 8000"
 Start-Process -FilePath "cmd.exe" -ArgumentList "/k", $backendCmd
 Start-Sleep -Seconds 4
 Start-Process -FilePath "cmd.exe" -ArgumentList "/k", "cd /d `"$Frontend`" && npm.cmd run dev"

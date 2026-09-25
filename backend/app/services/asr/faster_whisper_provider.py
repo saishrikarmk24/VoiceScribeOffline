@@ -11,13 +11,27 @@ import io
 import wave
 from typing import Any
 
-from app.core.config import settings
+from app.core.config import BACKEND_ROOT, settings
 from app.core.logging import get_logger, track_duration
 from app.services.asr.base import ASRProvider
 from app.services.asr.medical_normalizer import normalize_medical_transcript
 from app.services.types import ASRSegment, AudioFrame
 
 logger = get_logger(__name__)
+
+LOCAL_MODELS_DIR = BACKEND_ROOT / "models"
+
+
+def resolve_local_model(model_name: str) -> str:
+    """Prefer ``backend/models/faster-whisper-<name>`` downloaded by the installer.
+
+    The Hugging Face client can stall on some Windows networks, so the installer
+    fetches the files with curl into this folder and the app never needs the hub.
+    """
+    local = LOCAL_MODELS_DIR / f"faster-whisper-{model_name}"
+    if (local / "model.bin").is_file():
+        return str(local)
+    return model_name
 
 
 class FasterWhisperUnavailable(RuntimeError):
@@ -35,7 +49,7 @@ class FasterWhisperProvider(ASRProvider):
         compute_type: str | None = None,
         initial_prompt: str | None = None,
     ) -> None:
-        self.model_name = model_name or settings.faster_whisper_model
+        self.model_name = resolve_local_model(model_name or settings.faster_whisper_model)
         self.device = device or getattr(settings, "asr_device", "auto")
         self.compute_type = compute_type or getattr(settings, "asr_compute_type", "int8")
         # Drug names in initial_prompt leak into the transcript. Keep this empty.
