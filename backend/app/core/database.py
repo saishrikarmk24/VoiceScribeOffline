@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any, AsyncIterator
 
-from sqlalchemy import event, text
+from sqlalchemy import event, func, select, text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -128,6 +128,8 @@ async def init_database(create_schema: bool | None = None, url: str | None = Non
         if engine.dialect.name == "sqlite":
             await _migrate_sqlite_schema(engine)
 
+        await _seed_default_users(engine)
+
         logger.info("schema_ready", extra={"dialect": db_state.dialect})
 
     return db_state
@@ -171,6 +173,41 @@ async def _migrate_sqlite_schema(engine: AsyncEngine) -> None:
                         logger.info("sqlite_column_added", extra={"table": "sessions", "column": col_name})
                     except Exception as exc:
                         logger.warning("sqlite_migration_skipped", extra={"table": "sessions", "column": col_name, "error": str(exc)})
+
+
+async def _seed_default_users(engine: AsyncEngine) -> None:
+    """Seed default Administrator and Doctor accounts if users table is empty."""
+    from app.core.security import hash_password
+    from app.models.enums import UserRole
+    from app.models.user import User
+
+    async_session = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+    async with async_session() as session:
+        try:
+            result = await session.execute(select(func.count()).select_from(User))
+            count = result.scalar_one()
+            if count == 0:
+                admin = User(
+                    email="admin@sims.com",
+                    full_name="SIMS Hospital Administrator",
+                    role=UserRole.ADMIN,
+                    password_hash=hash_password("Admin@1234"),
+                    is_active=True,
+                )
+                doctor = User(
+                    email="saksham@sims.com",
+                    doctor_id="DOC-101",
+                    full_name="Dr. Saksham",
+                    department="General Medicine",
+                    role=UserRole.DOCTOR,
+                    password_hash=hash_password("Doctor@1234"),
+                    is_active=True,
+                )
+                session.add_all([admin, doctor])
+                await session.commit()
+                logger.info("default_users_seeded", extra={"admin": admin.email, "doctor": doctor.email})
+        except Exception as exc:
+            logger.warning("user_seeding_skipped", extra={"error": str(exc)})
 
 
 async def dispose_database() -> None:

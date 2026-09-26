@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -117,14 +118,44 @@ app.include_router(api_router, prefix=settings.api_prefix)
 app.include_router(websocket_router)
 
 
-@app.get("/", tags=["system"])
-async def root() -> dict:
-    return {
-        "name": settings.app_name,
-        "version": settings.app_version,
-        "purpose": "Clinical documentation assistant",
-        "not_a_diagnostic_system": True,
-        "docs": "/docs",
-        "api": settings.api_prefix,
-        "websocket": "/ws/sessions/{session_id}",
-    }
+# Check candidate paths for built frontend dist
+frontend_dist_candidates = [
+    Path(__file__).resolve().parents[2] / "frontend" / "dist",
+    Path("dist").resolve(),
+    Path("../frontend/dist").resolve(),
+    Path("/content/VoiceScribeOffline/frontend/dist").resolve(),
+]
+frontend_dist: Path | None = None
+for candidate in frontend_dist_candidates:
+    if candidate.exists() and (candidate / "index.html").exists():
+        frontend_dist = candidate
+        break
+
+if frontend_dist:
+    from fastapi.staticfiles import StaticFiles
+    from starlette.responses import FileResponse
+
+    assets_dir = frontend_dist / "assets"
+    if assets_dir.exists():
+        app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
+
+    @app.get("/{full_path:path}", tags=["spa"])
+    async def serve_spa(full_path: str):
+        if full_path.startswith("api") or full_path.startswith("ws") or full_path.startswith("docs") or full_path.startswith("openapi.json"):
+            return JSONResponse(status_code=404, content={"detail": "Not Found"})
+        file_path = frontend_dist / full_path
+        if file_path.is_file():
+            return FileResponse(file_path)
+        return FileResponse(frontend_dist / "index.html")
+else:
+    @app.get("/", tags=["system"])
+    async def root() -> dict:
+        return {
+            "name": settings.app_name,
+            "version": settings.app_version,
+            "purpose": "Clinical documentation assistant",
+            "not_a_diagnostic_system": True,
+            "docs": "/docs",
+            "api": settings.api_prefix,
+            "websocket": "/ws/sessions/{session_id}",
+        }
