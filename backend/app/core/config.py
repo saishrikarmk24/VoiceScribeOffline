@@ -75,8 +75,8 @@ class Settings(BaseSettings):
     local_llm_timeout_seconds: float = 180.0
     local_llm_max_retries: int = 2
     local_llm_temperature: float = 0.0
-    local_llm_num_ctx: int = 2048
-    local_llm_max_tokens: int = 600
+    local_llm_num_ctx: int = 8192
+    local_llm_max_tokens: int = 2048
 
     # --- database ----------------------------------------------------------
     database_url: str = "postgresql+asyncpg://medscribe:medscribe@localhost:5432/medscribe"

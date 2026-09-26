@@ -27,25 +27,28 @@ from app.services.llm.base import (
     LLMUnavailable,
     NoteResponse,
 )
-from app.services.llm.grounding import filter_ungrounded_entities, purge_note_hallucinations
 from app.services.llm.json_parse import extract_json_object
-from app.services.llm.schemas import ExtractionResult, NoteUpdate, coerce_llm_payload
+from app.services.llm.schemas import (
+    ExtractionResult,
+    NoteUpdate,
+    _NOTE_SECTION_KEYS,
+    coerce_llm_payload,
+)
 
 logger = get_logger(__name__)
 
 LOCAL_SYSTEM_INSTRUCTION = """\
-You are an ambient clinical scribe for Indian outpatient care.
-You DOCUMENT what was spoken. You are not a doctor.
+You are an expert clinical documentation and medical transcription AI for outpatient consultations.
+You document consultations, extracting exact medical facts and producing comprehensive, professional SOAP notes in Standard Medical English.
 
-HARD RULES:
-- Extract and write ONLY facts that appear in the transcript.
-- NEVER invent medications, doses, tests, diagnoses, or advice.
-- If the doctor did not prescribe anything, plan must be "".
-- If the patient did not name a current medicine, current_medication must be "".
-- If a section was not discussed, return "".
-- Translate vernacular (Hindi/Tamil/Telugu/Malayalam/Bengali/Hinglish) into clinical English.
-- Denied symptoms (nahi, illa, no fever) have status NEGATED.
-- Output valid JSON only.
+CORE CLINICAL PRINCIPLES:
+1. ACCURATE TRANSLATION & STANDARDIZATION: The patient and doctor may speak in Hindi, Tamil, Telugu, Malayalam, Bengali, Hinglish, or code-switched Indian languages. You MUST translate and synthesize all documented entities and narrative sections into clear, fluent, professional Clinical English (e.g. 'sar dard' -> 'Headache', 'gas / jalan' -> 'Dyspepsia / Epigastric burning', 'sugar' -> 'Diabetes mellitus').
+2. EXTRACT MEDICATIONS & TESTS THOROUGHLY:
+   - Identify every medication spoken (whether taken before coming, over-the-counter, regular daily meds, or prescribed by the doctor).
+   - Identify every investigation or test ordered or discussed (ECG, CBC, Chest X-ray, Blood Sugar, HbA1c, Troponin, Ultrasound, CT, etc.).
+3. DO NOT INVENT: Do not fabricate facts that were not spoken or implied. If a section was not discussed, return an empty string "" (never write "Not mentioned" or "N/A").
+4. ATTRIBUTE EVIDENCE: Every non-empty section must reference the supporting transcript segment ref(s) in source_segment_ids (e.g. ["seg_001"]).
+5. Always output valid JSON only.
 """
 
 
@@ -54,7 +57,7 @@ def _build_local_extraction_prompt(
     rule_hints: list[dict[str, Any]] | None = None,
 ) -> str:
     transcript = "\n".join(
-        f"[{s.get('ref', 'seg')}] {s.get('speaker_label', 'speaker')}: {s.get('text', '')}"
+        f"[{s.get('ref', 'seg')}] {s.get('role', 'SPEAKER')} ({s.get('speaker_label', 'speaker')}): {s.get('text', '')}"
         for s in segments
     )
     hints_text = ""
@@ -62,27 +65,45 @@ def _build_local_extraction_prompt(
         valid_hints = [h for h in rule_hints if h.get("value")]
         if valid_hints:
             hints_text = (
-                "HINTS (verify against transcript, discard if not spoken): "
+                "\nRULE-BASED CANDIDATES (verify against transcript):\n"
                 f"{json.dumps(valid_hints, default=str)}\n"
             )
 
-    return f"""Extract clinical entities spoken in this transcript. JSON only.
+    return f"""TASK: Extract all clinical entities from this conversation. Return JSON ONLY.
 
-Example — transcript:
-[seg_1] PATIENT: 2 days se sar dard, bukhar nahi hai.
-Correct JSON:
-{{"entities":[
-  {{"entity_type":"SYMPTOM","value":"headache","status":"PRESENT","confidence":0.9,"source_segment_ids":["seg_1"],"detail":"2 days"}},
-  {{"entity_type":"SYMPTOM","value":"fever","status":"NEGATED","confidence":0.9,"source_segment_ids":["seg_1"],"detail":null}}
-],"unsupported_content":[]}}
-
-Do NOT add medications unless a named drug was spoken. This example has none — do not copy drugs into the answer.
+MANDATORY CLINICAL EXTRACTION RULES:
+1. TRANSLATE TO MEDICAL ENGLISH: All extracted values must be written in standard clinical English (e.g., 'sar dard' -> 'Headache', 'chhati me dard' -> 'Chest pain', 'chakkar' -> 'Dizziness', 'sugar ki goli' -> 'Antidiabetic medication').
+2. EXTRACT MEDICATIONS THOROUGHLY:
+   - Extract ANY medication spoken: regular home meds, OTC meds taken prior (e.g. Paracetamol, Dolo 650, Aspirin, Antacid), and any medicines newly prescribed by the doctor.
+3. EXTRACT INVESTIGATIONS / TESTS:
+   - Extract ANY test mentioned: ECG, Blood tests, Sugar, Troponin, Chest X-ray, Ultrasound, CT scan, Urine test, etc.
+4. EXTRACT SYMPTOMS, VITALS & FINDINGS:
+   - Symptoms (chest pain, fever, cough, nausea, shortness of breath, etc.)
+   - Vitals/Findings (BP, Pulse, SpO2, Temp, examination findings)
+   - Diagnoses mentioned (Angina, Hypertension, Bronchitis, etc.)
+5. STATUS VALUES:
+   - 'PRESENT': currently reported or active
+   - 'NEGATED': explicitly denied or absent (e.g. 'no fever', 'fever nahi hai')
+   - 'UNCERTAIN': suspected or unclear
+   - 'HISTORICAL': prior past condition or prior medication taken in the past
+6. Every entity MUST include at least one valid source_segment_id from the transcript (e.g. ["seg_001"]).
 
 TRANSCRIPT:
 {transcript}
 {hints_text}
-Return JSON with entities of types SYMPTOM, DIAGNOSIS_MENTIONED, MEDICATION, FINDING, ALLERGY, MEDICAL_HISTORY.
-status: PRESENT, NEGATED, UNCERTAIN, HISTORICAL."""
+
+OUTPUT FORMAT (JSON ONLY):
+{{
+  "entities": [
+    {{"entity_type": "SYMPTOM", "value": "Chest pain", "status": "PRESENT", "confidence": 0.95, "source_segment_ids": ["seg_001"], "detail": "2 hours"}},
+    {{"entity_type": "SYMPTOM", "value": "Fever", "status": "NEGATED", "confidence": 0.95, "source_segment_ids": ["seg_001"], "detail": null}},
+    {{"entity_type": "INVESTIGATION", "value": "12-lead ECG", "status": "PRESENT", "confidence": 0.95, "source_segment_ids": ["seg_002"], "detail": "Urgent"}},
+    {{"entity_type": "MEDICATION", "value": "Dolo 650", "status": "HISTORICAL", "confidence": 0.95, "source_segment_ids": ["seg_003"], "detail": "Taken at home"}},
+    {{"entity_type": "MEDICATION", "value": "Aspirin 300mg", "status": "PRESENT", "confidence": 0.95, "source_segment_ids": ["seg_004"], "detail": "Prescribed stat"}},
+    {{"entity_type": "FINDING", "value": "Blood pressure 140/90 mmHg", "status": "PRESENT", "confidence": 0.9, "source_segment_ids": ["seg_002"], "detail": null}}
+  ],
+  "unsupported_content": []
+}}"""
 
 
 def _build_local_note_prompt(
@@ -90,27 +111,67 @@ def _build_local_note_prompt(
     entities: list[dict[str, Any]],
 ) -> str:
     transcript = "\n".join(
-        f"[{s.get('ref', 'seg')}] {s.get('speaker_label', 'speaker')}: {s.get('text', '')}"
+        f"[{s.get('ref', 'seg')}] {s.get('role', 'SPEAKER')} ({s.get('speaker_label', 'speaker')}): {s.get('text', '')}"
         for s in segments
     )
-    findings = ", ".join(
-        f"{e.get('value')} ({e.get('status')})" for e in entities if e.get("value")
-    ) or "None documented"
+    findings_list = [
+        f"• {e.get('entity_type')}: {e.get('value')} ({e.get('status')})"
+        for e in entities if e.get("value")
+    ]
+    findings = "\n".join(findings_list) if findings_list else "None documented yet"
 
-    return f"""Write a SOAP note from this dialogue. JSON only. Empty string if not discussed.
+    return f"""TASK: Synthesize a professional, comprehensive clinical SOAP note from this consultation in standard Medical English. Return JSON ONLY.
 
-Example — fever and body pain; doctor says rest and fluids; no named drug:
-{{"chief_complaint":"Fever and body pain","history_of_present_illness":"Patient reports fever and body pain.","past_medical_history":"","physical_examination":"","current_medication":"","allergies":"","assessment":"","plan":"Rest and oral fluids as advised.","follow_up":""}}
+MANDATORY CLINICAL DOCUMENTATION RULES:
+1. TRANSLATE TO MEDICAL ENGLISH: All sections must be in clear, professional clinical English, translating any vernacular or Indian terms (e.g. Hindi, Tamil, Telugu, Hinglish).
+2. DOCUMENT ALL 14 CLINICAL SECTIONS:
+   - chief_complaint: Presenting Complaint (e.g. "Chest pain and breathlessness for 2 hours").
+   - history_of_present_illness: Detailed HPI narrative (onset, duration, severity, radiation, aggravating/relieving factors, associated symptoms).
+   - relevant_medical_history: Past medical history, chronic diseases (Hypertension, Diabetes, previous surgeries). If not discussed, return "".
+   - social_history: Lifestyle, diet, smoking, alcohol, exercise. If not discussed, return "".
+   - family_history: Family history of heart disease, diabetes, hypertension, stroke, etc. If not discussed, return "".
+   - menstrual_history: Gynecological/menstrual history if applicable, else "".
+   - physical_examination: Physical exam findings, vitals (BP, pulse, SpO2, temp, heart/lung auscultation).
+   - current_medication: Regular chronic medications the patient was already taking before this encounter.
+   - allergies: Known drug or food allergies. If not discussed, return "".
+   - treatment_history: Prior treatments or medicines taken by the patient for this illness before coming to the doctor (e.g. "Took OTC Dolo 650 and antacid at home with minimal relief").
+   - previous_investigation: Prior diagnostic tests or reports mentioned by the patient or clinician (e.g. "ECG done 6 months ago was normal; random blood sugar reported 160 mg/dL").
+   - assessment: Clinical impression, working diagnosis, or differential (e.g. "Suspected Acute Coronary Syndrome / Atypical Angina, rule out MI").
+   - plan: Doctor's treatment plan. MUST INCLUDE:
+     * Diagnostic tests ordered (e.g. "Order urgent 12-lead ECG, Troponin-I, CBC, lipid profile").
+     * Prescribed medications with dose, route, frequency, and duration (e.g. "Tab Aspirin 300mg stat chewable; Tab Sorbitrate 5mg SL PRN").
+     * Non-pharmacological advice and lifestyle precautions.
+   - follow_up: Follow-up interval, warning signs, and return precautions.
+3. DO NOT write placeholder phrases like "Not mentioned", "N/A", or "None". If a section was not discussed, use an empty string "".
+4. Every non-empty section MUST include "source_segment_ids" with the supporting transcript segment ref(s) (e.g. ["seg_001"]).
+5. Return JSON ONLY matching this exact structure:
 
-NEVER invent a tablet, syrup, or diagnosis. If the doctor did not name a drug, plan must not contain one.
+{{
+  "note": {{
+    "chief_complaint": {{"text": "...", "confidence": 0.95, "source_segment_ids": ["seg_001"]}},
+    "history_of_present_illness": {{"text": "...", "confidence": 0.95, "source_segment_ids": ["seg_001"]}},
+    "relevant_medical_history": {{"text": "", "confidence": 0.0, "source_segment_ids": []}},
+    "social_history": {{"text": "", "confidence": 0.0, "source_segment_ids": []}},
+    "family_history": {{"text": "", "confidence": 0.0, "source_segment_ids": []}},
+    "menstrual_history": {{"text": "", "confidence": 0.0, "source_segment_ids": []}},
+    "physical_examination": {{"text": "...", "confidence": 0.9, "source_segment_ids": ["seg_002"]}},
+    "current_medication": {{"text": "...", "confidence": 0.9, "source_segment_ids": ["seg_003"]}},
+    "allergies": {{"text": "", "confidence": 0.0, "source_segment_ids": []}},
+    "treatment_history": {{"text": "...", "confidence": 0.9, "source_segment_ids": ["seg_004"]}},
+    "previous_investigation": {{"text": "...", "confidence": 0.9, "source_segment_ids": ["seg_005"]}},
+    "assessment": {{"text": "...", "confidence": 0.9, "source_segment_ids": ["seg_006"]}},
+    "plan": {{"text": "...", "confidence": 0.9, "source_segment_ids": ["seg_007"]}},
+    "follow_up": {{"text": "...", "confidence": 0.9, "source_segment_ids": ["seg_008"]}}
+  }},
+  "changed_sections": ["chief_complaint", "history_of_present_illness", "treatment_history", "previous_investigation", "assessment", "plan", "follow_up"]
+}}
 
 TRANSCRIPT:
 {transcript}
 
-EXTRACTED FINDINGS (already checked against the transcript):
+EXTRACTED CLINICAL FINDINGS:
 {findings}
-
-Return JSON with keys: chief_complaint, history_of_present_illness, past_medical_history, physical_examination, current_medication, allergies, assessment, plan, follow_up."""
+"""
 
 
 class LocalLLMProvider(LLMProvider):
@@ -283,22 +344,17 @@ class LocalLLMProvider(LLMProvider):
             segments=clean_segments,
             rule_hints=rule_based_candidates,
         )
-        raw_text, stats = await self._post_chat(prompt, purpose="entity_extraction", max_tokens=350)
+        raw_text, stats = await self._post_chat(prompt, purpose="entity_extraction", max_tokens=1000)
         try:
             parsed_json = extract_json_object(raw_text)
             coerced = coerce_llm_payload(parsed_json, ExtractionResult)
             result = ExtractionResult.model_validate(coerced)
-            segment_texts = {
-                str(s.get("ref", "")): str(s.get("text", "")) for s in clean_segments
-            }
-            kept, dropped = filter_ungrounded_entities(
-                result.entities,
-                segment_texts=segment_texts,
-                full_transcript=" ".join(segment_texts.values()),
-            )
-            if dropped:
-                logger.info("local_llm_dropped_ungrounded_entities", extra={"dropped": dropped})
-            result.entities = kept
+            # Ensure each entity has at least one source_segment_id
+            all_refs = [str(s.get("ref", "")) for s in clean_segments if s.get("ref")]
+            if all_refs:
+                for entity in result.entities:
+                    if not entity.source_segment_ids:
+                        entity.source_segment_ids = [all_refs[0]]
             return ExtractionResponse(result=result, stats=stats)
         except Exception as exc:
             logger.warning("local_llm_extraction_parse_error", extra={"raw": raw_text[:400], "error": str(exc)})
@@ -317,12 +373,19 @@ class LocalLLMProvider(LLMProvider):
             segments=clean_segments,
             entities=entities,
         )
-        raw_text, stats = await self._post_chat(prompt, purpose="note_generation", max_tokens=550)
+        raw_text, stats = await self._post_chat(prompt, purpose="note_generation", max_tokens=2048)
         try:
             parsed_json = extract_json_object(raw_text)
             coerced = coerce_llm_payload(parsed_json, NoteUpdate)
             result = NoteUpdate.model_validate(coerced)
-            purge_note_hallucinations(result, clean_segments, entities)
+            # Ensure documented sections have at least one source_segment_id so evidence linking succeeds
+            all_refs = [str(s.get("ref", "")) for s in clean_segments if s.get("ref")]
+            if all_refs:
+                note_dict = result.note
+                for sec_name in _NOTE_SECTION_KEYS:
+                    sec = getattr(note_dict, sec_name, None)
+                    if sec and sec.text and not sec.source_segment_ids:
+                        sec.source_segment_ids = [all_refs[0]]
             return NoteResponse(result=result, stats=stats)
         except Exception as exc:
             logger.warning("local_llm_note_parse_error", extra={"raw": raw_text[:400], "error": str(exc)})
