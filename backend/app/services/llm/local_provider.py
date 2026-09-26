@@ -143,10 +143,12 @@ class LocalLLMProvider(LLMProvider):
             )
         return self._client
 
-    async def _post_chat(self, prompt: str, *, purpose: str) -> tuple[str, LLMCallStats]:
+    async def _post_chat(
+        self, prompt: str, *, purpose: str, max_tokens: int | None = None
+    ) -> tuple[str, LLMCallStats]:
         client = self._get_client()
         num_ctx = getattr(settings, "local_llm_num_ctx", 2048)
-        max_tokens = getattr(settings, "local_llm_max_tokens", 600)
+        limit_tokens = max_tokens or getattr(settings, "local_llm_max_tokens", 600)
 
         is_ollama = "11434" in self.base_url
         if is_ollama:
@@ -167,10 +169,11 @@ class LocalLLMProvider(LLMProvider):
                 "messages": chat_messages,
                 "stream": False,
                 "format": "json",
+                "keep_alive": "24h",
                 "options": {
                     "num_thread": 8,
                     "num_ctx": num_ctx,
-                    "num_predict": max_tokens,
+                    "num_predict": limit_tokens,
                     "temperature": self.temperature,
                 },
             }
@@ -183,7 +186,7 @@ class LocalLLMProvider(LLMProvider):
                     {"role": "user", "content": prompt},
                 ],
                 "temperature": self.temperature,
-                "max_tokens": max_tokens,
+                "max_tokens": limit_tokens,
                 "response_format": {"type": "json_object"},
                 "stream": False,
             }
@@ -280,7 +283,7 @@ class LocalLLMProvider(LLMProvider):
             segments=clean_segments,
             rule_hints=rule_based_candidates,
         )
-        raw_text, stats = await self._post_chat(prompt, purpose="entity_extraction")
+        raw_text, stats = await self._post_chat(prompt, purpose="entity_extraction", max_tokens=350)
         try:
             parsed_json = extract_json_object(raw_text)
             coerced = coerce_llm_payload(parsed_json, ExtractionResult)
@@ -314,7 +317,7 @@ class LocalLLMProvider(LLMProvider):
             segments=clean_segments,
             entities=entities,
         )
-        raw_text, stats = await self._post_chat(prompt, purpose="note_generation")
+        raw_text, stats = await self._post_chat(prompt, purpose="note_generation", max_tokens=550)
         try:
             parsed_json = extract_json_object(raw_text)
             coerced = coerce_llm_payload(parsed_json, NoteUpdate)

@@ -34,6 +34,41 @@ def resolve_local_model(model_name: str) -> str:
     return model_name
 
 
+def _setup_cuda_libs() -> None:
+    """Ensure Linux dynamic linker can find nvidia-cublas and nvidia-cudnn wheels if installed."""
+    import os
+    import sys
+    if sys.platform != "win32":
+        try:
+            import nvidia.cublas.lib as cublas_lib
+            import nvidia.cudnn.lib as cudnn_lib
+            extra_paths = [cublas_lib.__path__[0], cudnn_lib.__path__[0]]
+            current = os.environ.get("LD_LIBRARY_PATH", "")
+            for p in extra_paths:
+                if p not in current:
+                    current = f"{p}:{current}" if current else p
+            os.environ["LD_LIBRARY_PATH"] = current
+        except Exception:
+            pass
+
+
+def _detect_device_and_compute(requested_device: str | None, requested_compute: str | None) -> tuple[str, str]:
+    device = requested_device or getattr(settings, "asr_device", "auto")
+    compute = requested_compute or getattr(settings, "asr_compute_type", "auto")
+
+    if device == "auto":
+        try:
+            import torch
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+        except Exception:
+            device = "cpu"
+
+    if compute == "auto":
+        compute = "float16" if device == "cuda" else "int8"
+
+    return device, compute
+
+
 class FasterWhisperUnavailable(RuntimeError):
     pass
 
@@ -51,7 +86,7 @@ class FasterWhisperProvider(ASRProvider):
     ) -> None:
         self.model_name = resolve_local_model(model_name or settings.faster_whisper_model)
         self.device = device or getattr(settings, "asr_device", "auto")
-        self.compute_type = compute_type or getattr(settings, "asr_compute_type", "int8")
+        self.compute_type = compute_type or getattr(settings, "asr_compute_type", "auto")
         # Drug names in initial_prompt leak into the transcript. Keep this empty.
         self.initial_prompt = initial_prompt if initial_prompt is not None else ""
         self._model: Any | None = None
@@ -59,19 +94,24 @@ class FasterWhisperProvider(ASRProvider):
     def _load(self) -> Any:
         if self._model is not None:
             return self._model
+        _setup_cuda_libs()
         try:
             from faster_whisper import WhisperModel  # type: ignore import-not-found
         except ImportError as exc:  # pragma: no cover - optional dependency
             raise FasterWhisperUnavailable(
                 "faster-whisper is not installed. Install requirements-asr.txt and set ASR_PROVIDER=faster_whisper."
             ) from exc
-        logger.info("loading_asr_model", extra={"model": self.model_name, "device": self.device})
+
+        device, compute = _detect_device_and_compute(self.device, self.compute_type)
+        logger.info("loading_asr_model", extra={"model": self.model_name, "device": device, "compute": compute})
         try:
-            self._model = WhisperModel(self.model_name, device=self.device, compute_type=self.compute_type)
+            self._model = WhisperModel(self.model_name, device=device, compute_type=compute)
+            self.device = device
+            self.compute_type = compute
         except Exception as exc:
             logger.warning(
                 "asr_gpu_or_device_failed_using_cpu",
-                extra={"requested_device": self.device, "error": str(exc)},
+                extra={"requested_device": device, "error": str(exc)},
             )
             self.device = "cpu"
             self.compute_type = "int8"
@@ -88,9 +128,10 @@ class FasterWhisperProvider(ASRProvider):
             model = await asyncio.to_thread(self._load)
             wav_bytes = self._to_wav(audio_chunk)
             transcribe_kwargs: dict[str, Any] = {
-                "beam_size": 5,
+                "beam_size": 1,
+                "best_of": 1,
                 "vad_filter": True,
-                "vad_parameters": {"min_silence_duration_ms": 500},
+                "vad_parameters": {"min_silence_duration_ms": 300},
                 "word_timestamps": True,
                 "condition_on_previous_text": False,
                 "temperature": 0.0,

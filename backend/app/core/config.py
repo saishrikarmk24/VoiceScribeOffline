@@ -94,8 +94,8 @@ class Settings(BaseSettings):
     asr_provider: ASRProviderName = ASRProviderName.FASTER_WHISPER
     diarization_provider: DiarizationProviderName = DiarizationProviderName.LOCAL
     faster_whisper_model: str = "large-v3-turbo"
-    asr_device: str = "cpu"
-    asr_compute_type: str = "int8"
+    asr_device: str = "auto"
+    asr_compute_type: str = "auto"
     indic_whisper_model: str = "ai4bharat/whisper-medium-hi_alldata_multigpu"
     indic_whisper_use_transformers: bool = False
     indic_conformer_model: str = "ai4bharat/indicconformer_stt_multi_hybrid_rnnt_600m"
