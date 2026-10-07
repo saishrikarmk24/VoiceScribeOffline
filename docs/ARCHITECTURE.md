@@ -227,7 +227,7 @@ The live screen is a three-column clinical workstation: transcript, note, intell
 | --- | --- | --- | --- |
 | ASR | `ASRProvider` | `FasterWhisperProvider` (default: `large-v3-turbo` int8) | `ASR_PROVIDER=faster_whisper` |
 | Diarization | `DiarizationService` | Local clustering (default). `PyannoteDiarizationProvider` needs extra VRAM | `DIARIZATION_PROVIDER=local` |
-| LLM | `LLMProvider` | `LocalLLMProvider` → Ollama `qwen2.5:7b` | `AI_MODE=local` |
+| LLM | `LLMProvider` | `LocalLLMProvider` → Ollama `gemma4:e4b` | `AI_MODE=local` |
 | Terminology | `TerminologyProvider` | not implemented | connect a terminology server |
 | Export | `FHIRAdapter` | FHIR-shaped | extend for a specific FHIR server |
 | Auth | `Principal` / `require_roles` | dev headers | replace `get_current_principal` |
